@@ -1,6 +1,6 @@
 from cmat.basic import Pitch, PitchClass, Accidental, Interval
 from cmat.basic import NoteType, Tuplet, Duration
-from cmat.basic import Triad, Key
+from cmat.basic import Triad
 
 from cmat.basic import C,Cn,Cs,Cx,Cb,Cbb,D,Dn,Ds,Dx,Db,Dbb
 from cmat.basic import E,En,Es,Ex,Eb,Ebb,F,Fn,Fs,Fx,Fb,Fbb
@@ -25,7 +25,7 @@ from cmat import tuplet
 from cmat import duration
 from cmat import key
 
-from cmat.score  import MBR,Key,Meter,Stream
+from cmat.score  import MBR,Key,Meter,Stream,System
 from cmat.syntax import rest
 _all__ = [
            # sub modules
