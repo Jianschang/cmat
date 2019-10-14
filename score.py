@@ -263,7 +263,7 @@ class Stream(object):
         item.position = position
 
         for idx,itm in enumerate(self):
-            if itm.position >= position and self._priority[type(itm)] > self._priority[type(item)]:
+            if itm.position >= position and self._priority[type(itm)] >= self._priority[type(item)]:
                 break
         else:
             idx = len(self)
@@ -339,7 +339,7 @@ class System(object):
 
     def get_meter(self,position):
         chk = 'mbr' if isinstance(position,MBR) else 'position'
-        
+
         for m in reversed(self.meters.items):
             if getattr(m,chk) < position:
                 return m
@@ -373,16 +373,16 @@ class System(object):
             next = None
 
         if next is not None:
-            shift = next.position-meter.position
+            shift = -(next.position-meter.position)%meter.bar_length
 
             for k in self.keys.filter(lambda k: meter.position<k.position<next.position):
                 k.position += -(k.position-meter.position)%meter.bar_length
                 k.mbr = self.translate(k.position)
 
-            for k in self.keys.filter(lambda k: k.position > next.position):
+            for k in self.keys.filter(lambda k: k.position >= next.position):
                 k.position += shift
                 k.mbr = self.translate(k.position)
-            for m in self.meters.filter(lambda m: m.position > next.position):
+            for m in self.meters.filter(lambda m: m.position >= next.position):
                 m.position += shift
                 m.mbr = self.translate(m.position)
 
