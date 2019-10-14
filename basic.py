@@ -610,7 +610,7 @@ class Quarters(Fraction):
     def __new__(cls,value,denominator=None):
 
         self = super(Quarters,cls).__new__(cls)
-        frac = Fraction(value).limit_denominator()
+        frac = Fraction(value,denominator).limit_denominator()
         self._numerator,self._denominator = frac.numerator,frac.denominator
         return self
 
@@ -619,6 +619,12 @@ class Quarters(Fraction):
 
     def __repr__(self):
         return str(self)
+
+#    def __hash__(self):
+#        return Fraction.__hash__(self)
+
+#    def __eq__(a,b):
+#        return Fraction.__eq__(a,Fraction.from_float(b)) 
 
     def __add__(a,b):
         f = Fraction.__add__(a,b)
