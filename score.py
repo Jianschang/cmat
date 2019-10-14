@@ -121,6 +121,10 @@ class Meter(object):
     def size(self):
         return self._size
 
+    @property
+    def bar_length(self):
+        return self.size * self.count
+
     def __init__(self,count,size):
 
         from cmat.basic import NoteType
@@ -336,7 +340,7 @@ class System(object):
     def get_meter(self,position):
         chk = 'mbr' if isinstance(position,MBR) else 'position'
         
-        for m in reversed(self.meters):
+        for m in reversed(self.meters.items):
             if getattr(m,chk) < position:
                 return m
         else:
@@ -352,12 +356,49 @@ class System(object):
             return None        
 
     def set_meter(self,measure,meter):
-        pass
+        from cmat.basic import Quarters
+
+        mbr = MBR(measure)
+        pos = Quarters(0) if measure == 1 else self.translate(mbr)
+
+        meter.mbr = mbr
+        self.meters.insert(pos,meter)
+
+        # adjust measure boudary of followed keys&meters
+        for m in self.meters:
+            if m.position > meter.position:
+                next = m
+                break
+        else:
+            next = None
+
+        if next is not None:
+            shift = next.position-meter.position
+
+            for k in self.keys.filter(lambda k: meter.position<k.position<next.position):
+                k.position += -(k.position-meter.position)%meter.bar_length
+                k.mbr = self.translate(k.position)
+
+            for k in self.keys.filter(lambda k: k.position > next.position):
+                k.position += shift
+                k.mbr = self.translate(k.position)
+            for m in self.meters.filter(lambda m: m.position > next.position):
+                m.position += shift
+                m.mbr = self.translate(m.position)
+
+        else:
+            shift = Quarters(0)
+
+            for k in self.keys.filter(lambda k: k.position > meter.position):
+                k.position += -(k.position-meter.position)%meter.bar_length
+                k.mbr = self.translate(k.position)
+
+        return shift
 
     def set_key(self,measure,key):
         from cmat.basic import Quarters
 
-        mbr = MBR(1) if measure == 1 else MBR(measure)
+        mbr = MBR(measure)
         pos = Quarters(0) if measure == 1 else self.translate(mbr)
         
         key.mbr = mbr
@@ -371,7 +412,7 @@ class System(object):
             raise RuntimeError('No reference meter found.')
 
         beat_size  = meter.size
-        bar_length = beat_size * meter.count
+        bar_length = meter.bar_length
 
         meter_pos  = meter.position
         meter_mbr  = meter.mbr
@@ -414,19 +455,34 @@ class System(object):
         col1 = max([len(str(i.mbr)) for i in chain(self.keys,self.meters)])
         col2 = max([len(str(i)) for i in chain(self.keys,self.meters)])
         
-        i = j = 0
-        k = len(self.keys)
-        m = len(self.meters)
+
         lines = []
 
-        while i < k or j < m:
-            if i < k and self.keys[i].position <= self.meters[j].position:
-                item = self.keys[i]
+        i = j = 0
+
+        k = self.keys.items
+        m = self.meters.items
+
+        kl = len(k)
+        ml = len(m)
+
+        while i < kl or j < ml:
+
+            if i >= kl:
+                item = m[j]
+                j += 1
+            elif j >= ml:
+                item = k[i]
+                i += 1
+            elif k[i].position <= m[j].position:
+                item = k[i]
                 i += 1
             else:
-                item = self.meters[j]
+                item = m[j]
                 j += 1
-            s = '{:<{wd1} {:>{wd2}}'.format(str(item.position),str(item))
+
+            s = '{:<{wd1}} {:>{wd2}}'.format(str(item.mbr),str(item),
+                                                        wd1=col1,wd2=col2)
             lines.append(s)
 
         return '\n'.join(lines)
