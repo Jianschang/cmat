@@ -355,6 +355,8 @@ class System(object):
         pass
 
     def set_key(self,measure,key):
+        from cmat.basic import Quarters
+
         mbr = MBR(1) if measure == 1 else MBR(measure)
         pos = Quarters(0) if measure == 1 else self.translate(mbr)
         
@@ -412,10 +414,22 @@ class System(object):
         col1 = max([len(str(i.mbr)) for i in chain(self.keys,self.meters)])
         col2 = max([len(str(i)) for i in chain(self.keys,self.meters)])
         
-        from cmat.basic import Quarters
-        pos = Quarters(0)
-        
-        
+        i = j = 0
+        k = len(self.keys)
+        m = len(self.meters)
+        lines = []
+
+        while i < k or j < m:
+            if i < k and self.keys[i].position <= self.meters[j].position:
+                item = self.keys[i]
+                i += 1
+            else:
+                item = self.meters[j]
+                j += 1
+            s = '{:<{wd1} {:>{wd2}}'.format(str(item.position),str(item))
+            lines.append(s)
+
+        return '\n'.join(lines)
         
     def __repr__(self):
         return str(self)
