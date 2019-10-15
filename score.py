@@ -352,18 +352,22 @@ class System(object):
 
     def get_meter(self,position):
         chk = 'mbr' if isinstance(position,MBR) else 'position'
-
+        org = MBR(1) if isinstance(position,MBR) else 0
         for m in reversed(self.meters.items):
             if getattr(m,chk) < position:
+                return m
+            elif getattr(m,chk) == org:
                 return m
         else:
             return None
 
     def get_key(self,position):
         chk = 'mbr' if isinstance(position,MBR) else 'position'
-        
+        org = MBR(1) if isinstance(position,MBR) else 0
         for k in reversed(self.keys):
             if getattr(k,chk) < position:
+                return k
+            elif getattr(k,chk) == org:
                 return k
         else:
             return None        
@@ -513,28 +517,30 @@ class Voice(Stream):
         self.insert(self.end,item)
     
     def insert(self,pos,item):
+
         if self._is_occupied(pos,item):
             raise RuntimeError('collided with existed items.')
-
+        '''
         for item in self:
             if item.position > pos:
                 insert_point = self.items.index(item)
         else:
             insert_point = len(self.items)
-        
-        item.position = pos
-        super().insert(insert_point,item)
+        '''
+        supe().insert(pos,item)
         
     def remove(self,item):
         self.items.remove(item)
 
     def _is_occupied(self,position,item):
-        p1 = p2 = position
-        if hasattr(item,'duration'): p2 += item.duration
+        p1 = p2 = self.system.translate(position)
+        if hasattr(item,'duration'):
+            p2 = p2+item.duration
 
         for i in self:
-            p3 = p4 = i.position
-            if hasattr(i,'duration'): p4 += i.duration
+            p3 = p4 = self.system.translate(i.position)
+            if hasattr(i,'duration'):
+                p4 = p4+i.duration
 
             if self._is_colliding(p1,p2,p3,p4):
                 return i
@@ -546,7 +552,7 @@ class Voice(Stream):
             return True
         if p3 < p1 < p4 or p3 < p2 < p4:
             return True
-        return False
+        return False4
 
     def __init__(self,vc=1,sys=None):
         self._voice_number = vc
