@@ -124,6 +124,10 @@ class Meter(object):
     @property
     def bar_length(self):
         return self.size * self.count
+        
+    @property
+    def copy(self):
+        return Meter(self.count,self.size)
 
     def __init__(self,count,size):
 
@@ -159,6 +163,10 @@ class Key(object):
     @property
     def mode(self):
         return self._mode
+
+    @property
+    def copy(self):
+        return Key(self.tonic,self.mode)
 
     def __init__(self,tonic,mode=major):
         self._tonic = tonic
@@ -332,7 +340,12 @@ class Stream(object):
             return self.filter(lambda i: index.start<=i.position<index.stop)
         else:
             s = self.filter(lambda i: i.position==index).items
-            return s[0] if len(s)==1 else s
+            if len(s) == 0:
+                return None
+            elif len(s) == 1:
+                return s[0]
+            else:
+                return s
 
 
 class System(object):
@@ -362,6 +375,10 @@ class System(object):
         pos = Quarters(0) if measure == 1 else self.translate(mbr)
 
         meter.mbr = mbr
+        existed = self.meters[pos]
+        if existed is not None:
+            self.meters.items.remove(existed)
+            
         self.meters.insert(pos,meter)
 
         # adjust measure boudary of followed keys&meters
@@ -402,6 +419,9 @@ class System(object):
         pos = Quarters(0) if measure == 1 else self.translate(mbr)
         
         key.mbr = mbr
+        existed = self.keys[pos]
+        if existed is not None:
+            self.keys.items.remove(existed)
         self.keys.insert(pos,key)
 
 
@@ -440,7 +460,9 @@ class System(object):
         if type(item) is Key:
             self.keys.remove(item)
         elif type(item) is Meter:
-            self.meters.remove(item)
+            meter = self.get_meter(item.position)
+            self.set_meter(meter.mbr.measure,meter)
+            self.meters.remove(meter)
 
     def __init__(self,key=Key(C,major),meter=Meter(4,4)):
         self.meters = Stream()
@@ -455,40 +477,82 @@ class System(object):
         col1 = max([len(str(i.mbr)) for i in chain(self.keys,self.meters)])
         col2 = max([len(str(i)) for i in chain(self.keys,self.meters)])
         
-
         lines = []
-
-        i = j = 0
-
-        k = self.keys.items
-        m = self.meters.items
-
-        kl = len(k)
-        ml = len(m)
-
-        while i < kl or j < ml:
-
-            if i >= kl:
-                item = m[j]
-                j += 1
-            elif j >= ml:
-                item = k[i]
-                i += 1
-            elif k[i].position <= m[j].position:
-                item = k[i]
-                i += 1
-            else:
-                item = m[j]
-                j += 1
-
-            s = '{:<{wd1}} {:>{wd2}}'.format(str(item.mbr),str(item),
-                                                        wd1=col1,wd2=col2)
-            lines.append(s)
-
+        for item in self:
+            lines.append('{:<{wd1}} {:>{wd2}}'.format(str(item.mbr),str(item),wd1=col1,wd2=col2))
         return '\n'.join(lines)
         
     def __repr__(self):
         return str(self)
+        
+    def __iter__(self):
+        from itertools import chain
+        items = list(chain(self.keys,self.meters))
+        items.sort(key=lambda x: x.position)
+        
+        return iter(items)
+
+class Voice(Stream):
+
+    @property
+    def end(self):
+        return self.system.translate(super().end)
+        
+    @property
+    def voice_number(self):
+        return self._voice_number
+        
+    @property
+    def copy(self):
+        v = Voice(vc=self.voice_number,sys=self.system)
+        for item in self:
+            v.insert(item.posoition,item)
+        return v
+        
+    def append(self,item):
+        self.insert(self.end,item)
+    
+    def insert(self,pos,item):
+        if self._is_occupied(pos,item):
+            raise RuntimeError('collided with existed items.')
+
+        for item in self:
+            if item.position > pos:
+                insert_point = self.items.index(item)
+        else:
+            insert_point = len(self.items)
+        
+        item.position = pos
+        super().insert(insert_point,item)
+        
+    def remove(self,item):
+        self.items.remove(item)
+
+    def _is_occupied(self,position,item):
+        p1 = p2 = position
+        if hasattr(item,'duration'): p2 += item.duration
+
+        for i in self:
+            p3 = p4 = i.position
+            if hasattr(i,'duration'): p4 += i.duration
+
+            if self._is_colliding(p1,p2,p3,p4):
+                return i
+        else:
+            return False
+
+    def _is_colliding(self,p1,p2,p3,p4):
+        if p1 < p3 < p2 or p1 < p4 < p2:
+            return True
+        if p3 < p1 < p4 or p3 < p2 < p4:
+            return True
+        return False
+
+    def __init__(self,vc=1,sys=None):
+        self._voice_number = vc
+        self.system = System() if sys is None else sys
+        super().__init__()
+        
 
 '''
 class Stream(object):
