@@ -25,7 +25,7 @@ from cmat import tuplet
 from cmat import duration
 from cmat import key
 
-from cmat.score  import MBR,Key,Meter,Stream,System
+from cmat.score  import MBR,Key,Meter,Stream,System,Voice
 from cmat.syntax import rest
 _all__ = [
            # sub modules
