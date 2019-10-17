@@ -1,0 +1,66 @@
+
+
+Stream is a generic musical item list, it is:
+
+    1) time sorted
+    2) heterogenic
+    3) polyphonic
+
+Voice is a monophonic notes, rests and chords list, it features:
+
+    1) time sorted in measure/beat/remnant format.
+    2) heterogenic
+    3) monophonic
+
+System is a global accessible list for event like Key signature and Time signature, etc.
+
+    1) time sorted in both quarters and measure/beat/remnant format.
+    2) heterogenic
+    3) polyphonic
+
+
+Stream
+
+    stream.append
+    stream.insert
+    stream.remove
+    stream.filter
+    stream.find
+    stream.rfind
+    stream.index
+    stream.rindex
+    stream.sort
+
+    stream.__iter__
+    stream.__getitem__
+    stream.__contains__
+    stream.__len__
+    stream.__str__
+    stream.__repr__
+
+Voice
+
+    voice.append
+    voice.insert
+    voice.remove
+    voice.filter
+    voice.sort
+
+    voice.progress (voice progressing iterator)
+
+    voice.__iter__
+    voice.__getitem__
+    voice.__contains__
+    voice.__len__
+    voice.__str__
+    voice.__repr__
+
+System
+
+    system.translate
+    system.get_context (key, meter, repeats, etc.)
+    system.set_context
+    system.insert
+    system.remove
+
+    
