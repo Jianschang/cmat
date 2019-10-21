@@ -144,7 +144,13 @@ class Stream(object):
 		return len(self.items)
 		
 	def __str__(self):
-		attrs = ['position','duration',']
+
+		lines = []
+		for item in self:
+			lines.append('{:<12} {:>24}'.format(item.position,item))
 		
+		return '\n'.join(lines)
+												
 	def __repr__(self):
+	
 		return str(self)
