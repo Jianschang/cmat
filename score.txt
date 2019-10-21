@@ -21,6 +21,8 @@ System is a global accessible list for event like Key signature and Time signatu
 
 Stream
 
+		stream.end
+
     stream.append
     stream.insert
     stream.remove
@@ -40,11 +42,12 @@ Stream
 
 Voice
 
+		voice.end
+		
     voice.append
     voice.insert
-    voice.remove
-    voice.filter
     voice.sort
+    voice.grouping (measure/beat/rhythmic)
 
     voice.progress (voice progressing iterator)
 
@@ -63,4 +66,85 @@ System
     system.insert
     system.remove
 
-    
+    system.__str__
+    system.__repr__
+
+
+
+
+class Stream(object):
+
+	_priority = {Key:0,Meter:1,Note:2,Rest:3,Chord:4}
+
+	@property
+	def end(self):
+		from cmat.basic import Quarters
+		
+		stop = [i.position+i.duration if hasattr(i,'duration') else i.position for i in self]
+		return max(stop) if len(stop) > 0 else Quarters(0)
+
+	def insert(self,position,item):
+		p = position + self._priority[type(item)]/1000
+		i = self.index(lambda i: i.position+self._priority[type(i)]/1000 >= p)
+		
+		if i is None:
+			i == len(self)
+		
+		item.position = position
+		self.items.insert(i,item)
+
+	def append(self,item):
+		self.insert(self.end,item)
+
+	def remove(self,item):
+		self.items.remove(item)
+
+	def filter(self,criteria):
+		s = Stream()
+		for i in filter(key=criteria,self):
+			s.append(i)
+		return s
+
+	def find(self,criteria):
+		for i in self:
+			if criteria(i):
+				return i
+
+	def rfind(self,criteria):
+		for i in reversed(self):
+			if criteria(i):
+				return i
+
+	def index(self,criteria):
+		for idx,item in enumerate(self):
+			if criteria(item):
+				return idx
+		
+	def rindex(self,criteria):
+		for idx in reversed(range(len(self))):
+			if criteria(self[idx]):
+				return idx
+		
+	def __init__(self,*items):
+		self.items = []
+		
+		for item in items:
+			self.append(items)
+		
+	def __iter__(self):
+		return iter(self.items)
+		
+	def __contains__(self,item):
+		return item in self.items
+
+	def __getitem__(self,index):
+		return self.items[index]
+
+	def __len__(self):
+		return len(self.items)
+		
+	def __str__(self):
+		attrs = ['position','duration',']
+		
+	def __repr__(self):
+		return str(self)
