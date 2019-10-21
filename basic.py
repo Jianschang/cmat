@@ -201,6 +201,10 @@ class Pitch(PitchClass):
         return 2**((self.MIDI-69)/12)*440
 
     @property
+    def PC(self):
+        return PitchClass(self.degree,self.accidental)
+
+    @property
     def MIDI(self):
         return self.chromatic + (self.octave+1) * 12
 
