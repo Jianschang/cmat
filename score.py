@@ -111,7 +111,39 @@ class MBR(object):
         else:
             return False
 
-class Meter(object):
+class StreamItem(object):
+    
+    @property
+    def position(self):
+        return self._quarters if self._position is None else self._position
+
+    @position.setter
+    def position(self,pos):
+        if isinstance(pos,MBR):
+            self._position = pos
+            if self._container is not None and hasattr(self._container,'system'):
+                self._quarters = self._container.system.translate(pos)
+        else:
+            self._quarters = pos
+            if self._container is not None and hasattr(self._container,'system'):
+                self._position = self._container.system.translate(pos)
+
+    @property
+    def quarters(self):
+        return self._quarters
+
+    @quarters.setter
+    def quarters(self,pos):
+        self._quarters = pos
+        if self._container is not None and hasattr(self._container,'system'):
+            self._position = self._container.system.translate(pos)
+
+    def __init__(self):
+        self._container = None
+        self._position  = None
+        self._quarters  = None
+
+class Meter(StreamItem):
 
     @property
     def count(self):
@@ -133,6 +165,8 @@ class Meter(object):
 
         from cmat.basic import NoteType
 
+        super().__init__()
+
         self._count = count
         if isinstance(size,int):
             self._size = NoteType(4/size)
@@ -152,7 +186,7 @@ class Meter(object):
     def __repr__(self):
         return str(self)
 
-class Key(object):
+class Key(StreamItem):
 
     from cmat.quality import major
 
@@ -169,6 +203,9 @@ class Key(object):
         return Key(self.tonic,self.mode)
 
     def __init__(self,tonic,mode=major):
+        
+        super().__init__()
+        
         self._tonic = tonic
         self._mode  = mode if mode is not None else major
 
@@ -178,7 +215,7 @@ class Key(object):
     def __repr__(self):
         return str(self)
 
-class Note(object):
+class Note(StreamItem):
     @property
     def duration(self):
         return self._duration
@@ -201,18 +238,19 @@ class Note(object):
 
         from cmat.basic import Duration
 
+        super().__init__()
+
         self.pitch = pitch
         self._duration = dur if isinstance(dur,Duration) else Duration(dur)
 
     def __str__(self):
-
         return ' '.join([str(s) for s in (self.duration,self.pitch)])
 
     def __repr__(self):
         return str(self)
 
 
-class Rest(object):
+class Rest(StreamItem):
     @property
     def duration(self):
         return self._duration
@@ -234,6 +272,8 @@ class Rest(object):
     def __init__(self,dur):
 
         from cmat.basic import Duration
+
+        super().__init__()
 
         self._duration = dur if type(dur) is Duration else Duration(dur)
 
@@ -262,7 +302,8 @@ class Stream(object):
                                                        and pr[type(i)] > pr[type(item)]))
         if i is None:
             i = len(self)
-        
+
+        item._container = self
         item.position = position
         self.items.insert(i,item)
 
@@ -347,156 +388,6 @@ class Stream(object):
     def __repr__(self):
         return str(self)
 
-'''
-class System(object):
-
-    def get_meter(self,position):
-        chk = 'mbr' if isinstance(position,MBR) else 'position'
-        org = MBR(1) if isinstance(position,MBR) else 0
-        for m in reversed(self.meters.items):
-            if getattr(m,chk) < position:
-                return m
-            elif getattr(m,chk) == org:
-                return m
-        else:
-            return None
-
-    def get_key(self,position):
-        chk = 'mbr' if isinstance(position,MBR) else 'position'
-        org = MBR(1) if isinstance(position,MBR) else 0
-        for k in reversed(self.keys):
-            if getattr(k,chk) < position:
-                return k
-            elif getattr(k,chk) == org:
-                return k
-        else:
-            return None        
-
-    def set_meter(self,measure,meter):
-        from cmat.basic import Quarters
-
-        mbr = MBR(measure)
-        pos = Quarters(0) if measure == 1 else self.translate(mbr)
-
-        meter.mbr = mbr
-        existed = self.meters[pos]
-        if existed is not None:
-            self.meters.items.remove(existed)
-            
-        self.meters.insert(pos,meter)
-
-        # adjust measure boudary of followed keys&meters
-        for m in self.meters:
-            if m.position > meter.position:
-                next = m
-                break
-        else:
-            next = None
-
-        if next is not None:
-            shift = -(next.position-meter.position)%meter.bar_length
-
-            for k in self.keys.filter(lambda k: meter.position<k.position<next.position):
-                k.position += -(k.position-meter.position)%meter.bar_length
-                k.mbr = self.translate(k.position)
-
-            for k in self.keys.filter(lambda k: k.position >= next.position):
-                k.position += shift
-                k.mbr = self.translate(k.position)
-            for m in self.meters.filter(lambda m: m.position >= next.position):
-                m.position += shift
-                m.mbr = self.translate(m.position)
-
-        else:
-            shift = Quarters(0)
-
-            for k in self.keys.filter(lambda k: k.position > meter.position):
-                k.position += -(k.position-meter.position)%meter.bar_length
-                k.mbr = self.translate(k.position)
-
-        return shift
-
-    def set_key(self,measure,key):
-        from cmat.basic import Quarters
-
-        mbr = MBR(measure)
-        pos = Quarters(0) if measure == 1 else self.translate(mbr)
-        
-        key.mbr = mbr
-        existed = self.keys[pos]
-        if existed is not None:
-            self.keys.items.remove(existed)
-        self.keys.insert(pos,key)
-
-
-    def translate(self,position):
-        meter = self.get_meter(position)
-        
-        if meter is None:
-            raise RuntimeError('No reference meter found.')
-
-        beat_size  = meter.size
-        bar_length = meter.bar_length
-
-        meter_pos  = meter.position
-        meter_mbr  = meter.mbr
-
-        if isinstance(position,MBR):
-            mbr = position
-            position = meter_pos
-
-            position += bar_length * (mbr.measure-meter_mbr.measure)
-            position += beat_size  * (mbr.beat - meter_mbr.beat)
-            position += mbr.remnant
-
-            return position
-
-        else:
-            distance = position - meter_pos
-            m = distance // bar_length
-            b = (distance % bar_length) // beat_size
-            r = (distance % bar_length) %  beat_size
-
-            return MBR(meter_mbr.measure+m,meter_mbr.beat+b,meter_mbr.remnant+r)
-
-
-    def remove(self,item):
-        if type(item) is Key:
-            self.keys.remove(item)
-        elif type(item) is Meter:
-            meter = self.get_meter(item.position)
-            self.set_meter(meter.mbr.measure,meter)
-            self.meters.remove(meter)
-
-    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
-        self.meters = Stream()
-        self.keys   = Stream()
-
-        self.set_key(1,key)
-        self.set_meter(1,meter)
-        
-    def __str__(self):
-        
-        from itertools import chain
-        col1 = max([len(str(i.mbr)) for i in chain(self.keys,self.meters)])
-        col2 = max([len(str(i)) for i in chain(self.keys,self.meters)])
-        
-        lines = []
-        for item in self:
-            lines.append('{:<{wd1}} {:>{wd2}}'.format(str(item.mbr),str(item),wd1=col1,wd2=col2))
-        return '\n'.join(lines)
-        
-    def __repr__(self):
-        return str(self)
-        
-    def __iter__(self):
-        from itertools import chain
-        items = list(chain(self.keys,self.meters))
-        items.sort(key=lambda x: x.position)
-        
-        return iter(items)
-'''
-
 class System(Stream):
     
     @property
@@ -505,7 +396,7 @@ class System(Stream):
         stops = []
         for item in self:
             if hasattr(item,'duration'):
-                stops.append(self.translate(self.translate(item.position)+item.duration))
+                stops.append(self.translate(item.quarters + item.duration))
             else:
                 stops.append(item.position)
         
@@ -516,30 +407,36 @@ class System(Stream):
         if meter is None:
             raise RuntimeError('reference meter not found.')
             
-        beat    = meter.size
-        measure = meter.bar_length
+        beat       = meter.size
+        bar_length = meter.bar_length
         
         if isinstance(position,MBR):
             m = position.measure - meter.position.measure
             b = position.beat - 1
             r = position.remnant
-            return meter.quarters + measure*m + beat*b + r
+            return meter.quarters + bar_length*m + beat*b + r
         else:
-            m = (position - meter.quarters) // measure + meter.position.measure
-            b = (position - meter.quarters) % measure // beat + 1
-            r = (position - meter.quarters) % measure % beat
+            m = (position - meter.quarters) // bar_length + meter.position.measure
+            b = (position - meter.quarters) % bar_length // beat + 1
+            r = (position - meter.quarters) % bar_length % beat
             return MBR(m,b,r)
 
     def __init__(self,key=Key(C,major),meter=Meter(4,4)):
         from cmat.basic import Quarters
         
         self.items = []
+        self.system = self
         
         if key is not None:
-            self.append(key)
+            key._quarters = Quarters(0)
+            key._position = MBR(1)
+            key._container = self
+            self.items.append(key)
         if meter is not None:
-            meter.quarters = Quarters(0)
-            self.append(meter)
+            meter._quarters = Quarters(0)
+            meter._position = MBR(1)
+            meter._container = self
+            self.items.append(meter)
 
     def __str__(self):
 
@@ -560,46 +457,35 @@ class System(Stream):
         
     def get_key(self,position):
         keys = self.filter(lambda i: type(i) is Key)
-        if not isinstance(position,MBR):
-            position = self.translate(position)
-        
-        return keys.rfind(lambda i: getattr('position') < position \
-                                 or getattr('position') ==  MBR(1))
+        if isinstance(position,MBR):
+            return keys.rfind(lambda i: getattr(i,'position') < position \
+                                     or getattr(i,'position') == MBR(1))
+        else:
+            return keys.rfind(lambda i: getattr(i,'quarters') < position \
+                                     or getattr(i,'quarters') == 0)
     
     def set_meter(self,measure,meter):
         position = MBR(measure)
-        meter.quarters = self.translate(position)
         
-        next_meter = self.filter(lambda i: type(i) is Meter).find(lambda i: i.position > position)
-        split = self.end if next_meter is None else next_meter.position
-        realign = self.filter(lambda i: position < i.position <= split and type(i) is not Meter)
-        shift   = self.filter(lambda i: i.position > split)
-        
-        if next_meter is not None:
-            next_meter.quarters += -(next_meter.quarters-meter.quarters) % meter.bar_length
-            original = next_meter.position.measure
-            
-        quarters = [self.translate(i.position) for i in realign]
-        quarters = [q+(-(q-meter.quarters)%meter.bar_length) for q in quarters]
-        quarters = iter(quarters)
+        next_meter  = self.filter(lambda i: type(i) is Meter).find(lambda i: i.position > position)
+        split_point = position if next_meter is None else next_meter.position
 
-        existed = self.find(lambda i: i.position == position and type(i) is Meter)
+        existed = self.find(lambda m: type(m) is Meter and m.position == position)
         if existed is not None:
-            self.remove(existed)
+            self.items.remove(existed)
+
         self.insert(position,meter)
+
+        shift = -(next_meter.quarters-meter.quarters)%meter.bar_length if next_meter is not None else 0
+
+        for item in self.filter(lambda i: meter.position < i.position < split_point):
+            item.quarters += -(item.quarters-meter.quarters) % meter.bar_length
+
+        for m in self.filter(lambda i: type(i) is Meter and i.position >= split_point):
+            m.quarters = m.quarters + shift
         
-        for item in realign:
-            item.position = self.translate(next(quarters))
-
-        if next_meter is not None:
-            next_meter.position = self.translate(next_meter.quarters)
-            measure_change = next_meter.position.measure - original
-
-            for item in shift:
-                item.position = MBR(item.position.measure+measure_change,item.position.beat,item.position.remnant)
-                if hasattr(item,'quarters'):
-                    item.quarters = self.translate(item.position)
-
+        for item in self.filter(lambda i: type(i) is not Meter and i.position >= split_point):
+            item.quarters += shift
 
     def set_key(self,measure,key):
         position = MBR(measure)
@@ -616,6 +502,7 @@ class System(Stream):
         existed = self.find(lambda i: type(i) is Key and i.position == position)
         if existed is not None:
             self.remove(existed)
+    
     def del_meter(self,measure):
         position = MBR(measure)
         
@@ -629,7 +516,7 @@ class System(Stream):
     def filter(self,criteria):
         s = System(key=None,meter=None)
         for i in filter(criteria,self):
-            s.insert(i.position,i)
+            s.items.append(i)
         return s
 '''
 class Voice(Stream):
@@ -711,14 +598,18 @@ class Voice(Stream):
         stops = []
         for item in self:
             if hasattr(item,'duration'):
-                stops.append(self.system.translate(self.system.translate(item.position)+item.duration))
+                stops.append(self.system.translate(item.quarters+item.duration))
             else:
                 stops.append(item.position)
         
         return max(stops) if len(stops) > 0 else MBR(1)
+        
+    @property
+    def notes(self):
+        return list(self.filter(lambda i: type(i) is Note))
 
     def filter(self,criteria):
-        s = Voice(self.voice_number,self.system.filter(criteria))
+        s = Voice(self.voice_number,self.system)
         for i in filter(criteria,self):
             s.insert(i.position,i)
         return s
