@@ -244,215 +244,110 @@ class Rest(object):
         return str(self)
 
 
-'''
 class Stream(object):
 
-    _priority = {Key:0,Meter:1,Note:2,Rest:3}
+    _priority = {Key:0,Meter:1,Note:2,Rest:3}#{,Chord:4}
 
     @property
     def end(self):
-
         from cmat.basic import Quarters
+        
+        stop = [i.position+i.duration if hasattr(i,'duration') else i.position for i in self]
+        return max(stop) if len(stop) > 0 else Quarters(0)
 
-        if len(self) == 0:
-            return Quarters(0)
+    def insert(self,position,item):
 
-        end = Quarters(0)
-        for i in self:
-            stop = i.position + i.duration if hasattr(i,'duration') else i.position
-            if end < stop:
-                end = stop
-
-        return end
+        pr = self._priority
+        i = self.index(lambda i: i.position > position or (i.position==position
+                                                       and pr[type(i)] > pr[type(item)]))
+        if i is None:
+            i = len(self)
+        
+        item.position = position
+        self.items.insert(i,item)
 
     def append(self,item):
         self.insert(self.end,item)
 
-    def insert(self,position,item):
-
-        item.position = position
-
-        for idx,itm in enumerate(self):
-            if itm.position >= position and self._priority[type(itm)] >= self._priority[type(item)]:
-                break
-        else:
-            idx = len(self)
-
-        self.items.insert(idx,item)
-
     def remove(self,item):
         self.items.remove(item)
+        
+    def realign(self):
+        self.items.sort(key=lambda i: [i.position, self._priority[type(i)]])
 
     def filter(self,criteria):
-
         s = Stream()
-
-        for item in self:
-            if criteria(item):
-                s.insert(item.position,item)
-
+        for i in filter(criteria,self):
+            s.insert(i.position,i)
         return s
 
-    def sort(self):
-        self.items.sort(key=lambda x: x.position+self._priority[type(x)]/1000)
+    def fr(self,position):
+        return self.filter(lambda i: i.position >= position)
 
-    def __init__(self, *items):
+    def to(self,position):
+        return self.filter(lambda i: i.position < position)
+
+    def at(self,position):
+        return self.filter(lambda i: i.position == position)
+
+    def find(self,criteria):
+        for i in self:
+            if criteria(i):
+                return i
+        else:
+            return None
+
+    def rfind(self,criteria):
+        for i in reversed(self):
+            if criteria(i):
+                return i
+        else:
+            return None
+
+    def index(self,criteria):
+        for idx,item in enumerate(self):
+            if criteria(item):
+                return idx
+        else:
+            return None
+        
+    def rindex(self,criteria):
+        for idx in reversed(range(len(self))):
+            if criteria(self[idx]):
+                return idx
+        else:
+            return None
+        
+    def __init__(self,*items):
         self.items = []
+        
         for item in items:
-            self.append(item)
-
-    def __len__(self):
-        return len(self.items)
-
+            self.append(items)
+        
     def __iter__(self):
         return iter(self.items)
-
+        
     def __contains__(self,item):
         return item in self.items
 
+    def __getitem__(self,index):
+        return self.items[index]
+
+    def __len__(self):
+        return len(self.items)
+        
     def __str__(self):
-        
-        if len(self) == 0: return ''
-        
-        col1 = [len(str(i.position)) for i in self]
-        col2 = [len(str(i.duration)) if hasattr(i,'duration') else 0 for i in self]
-        col3 = [len(str(i)) - col2[c] for c,i in enumerate(self)]
-        
-        wid1 = max(col1)
-        wid2 = max(col2)
-        wid3 = max(col3)
-        
+
         lines = []
+        for item in self:
+            lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
         
-        for c,item in enumerate(self):
-            pos = '{:<{width}}'.format(str(item.position),width=wid1)
-            dur = '{:>{width}}'.format(str(item.duration),width=wid2) \
-                if hasattr(item,'duration') else ' '*wid2
-            rst = '{:>{width}}'.format(str(item)[col2[c]:],width=wid3)
-            
-            lines.append('{} {} {}'.format(pos,dur,rst))
         return '\n'.join(lines)
-    
+                                                
     def __repr__(self):
         return str(self)
-    
-    def __getitem__(self,index):
 
-        if isinstance(index,slice):
-            return self.filter(lambda i: index.start<=i.position<index.stop)
-        else:
-            s = self.filter(lambda i: i.position==index).items
-            if len(s) == 0:
-                return None
-            elif len(s) == 1:
-                return s[0]
-            else:
-                return s
 '''
-
-class Stream(object):
-
-	_priority = {Key:0,Meter:1,Note:2,Rest:3}#{,Chord:4}
-
-	@property
-	def end(self):
-		from cmat.basic import Quarters
-		
-		stop = [i.position+i.duration if hasattr(i,'duration') else i.position for i in self]
-		return max(stop) if len(stop) > 0 else Quarters(0)
-
-	def insert(self,position,item):
-		p = position + self._priority[type(item)]/1000
-		i = self.index(lambda i: i.position+self._priority[type(i)]/1000 >= p)
-		
-		if i is None:
-			i = len(self)
-		
-		item.position = position
-		self.items.insert(i,item)
-
-	def append(self,item):
-		self.insert(self.end,item)
-
-	def remove(self,item):
-		self.items.remove(item)
-		
-	def realign(self):
-		self.items.sort(key=lambda i: i.position + self._priority[type(i)]/1000)
-
-	def filter(self,criteria):
-		s = Stream()
-		for i in filter(criteria,self):
-			s.insert(i.position,i)
-		return s
-
-	def fr(self,position):
-		return self.filter(lambda i: i.position >= position)
-
-	def to(self,position):
-		return self.filter(lambda i: i.position < position)
-
-	def at(self,position):
-		return self.filter(lambda i: i.position == position)
-
-	def find(self,criteria):
-		for i in self:
-			if criteria(i):
-				return i
-		else:
-			return None
-
-	def rfind(self,criteria):
-		for i in reversed(self):
-			if criteria(i):
-				return i
-		else:
-			return None
-
-	def index(self,criteria):
-		for idx,item in enumerate(self):
-			if criteria(item):
-				return idx
-		else:
-			return None
-		
-	def rindex(self,criteria):
-		for idx in reversed(range(len(self))):
-			if criteria(self[idx]):
-				return idx
-		else:
-			return None
-		
-	def __init__(self,*items):
-		self.items = []
-		
-		for item in items:
-			self.append(items)
-		
-	def __iter__(self):
-		return iter(self.items)
-		
-	def __contains__(self,item):
-		return item in self.items
-
-	def __getitem__(self,index):
-		return self.items[index]
-
-	def __len__(self):
-		return len(self.items)
-		
-	def __str__(self):
-
-		lines = []
-		for item in self:
-			lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
-		
-		return '\n'.join(lines)
-												
-	def __repr__(self):
-		return str(self)
-
-
 class System(object):
 
     def get_meter(self,position):
@@ -600,7 +495,143 @@ class System(object):
         items.sort(key=lambda x: x.position)
         
         return iter(items)
+'''
 
+class System(Stream):
+    
+    @property
+    def end(self):
+        
+        stops = []
+        for item in self:
+            if hasattr(item,'duration'):
+                stops.append(self.translate(self.translate(item.position)+item.duration))
+            else:
+                stops.append(item.position)
+        
+        return max(stops) if len(stops) > 0 else MBR(1)
+
+    def translate(self,position):
+        meter = self.get_meter(position)
+        if meter is None:
+            raise RuntimeError('reference meter not found.')
+            
+        beat    = meter.size
+        measure = meter.bar_length
+        
+        if isinstance(position,MBR):
+            m = position.measure - meter.position.measure
+            b = position.beat - 1
+            r = position.remnant
+            return meter.quarters + measure*m + beat*b + r
+        else:
+            m = (position - meter.quarters) // measure + meter.position.measure
+            b = (position - meter.quarters) % measure // beat + 1
+            r = (position - meter.quarters) % measure % beat
+            return MBR(m,b,r)
+
+    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
+        from cmat.basic import Quarters
+        
+        self.items = []
+        
+        if key is not None:
+            self.append(key)
+        if meter is not None:
+            meter.quarters = Quarters(0)
+            self.append(meter)
+
+    def __str__(self):
+
+        lines = []
+        for item in self:
+            lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
+        
+        return '\n'.join(lines)
+
+    def get_meter(self,position):
+        meters = self.filter(lambda i: type(i) is Meter)
+        if isinstance(position,MBR):
+            return meters.rfind(lambda i: getattr(i,'position') < position \
+                                       or getattr(i,'position') == MBR(1))
+        else:
+            return meters.rfind(lambda i: getattr(i,'quarters') < position \
+                                       or getattr(i,'quarters') == 0)
+        
+    def get_key(self,position):
+        keys = self.filter(lambda i: type(i) is Key)
+        if not isinstance(position,MBR):
+            position = self.translate(position)
+        
+        return keys.rfind(lambda i: getattr('position') < position \
+                                 or getattr('position') ==  MBR(1))
+    
+    def set_meter(self,measure,meter):
+        position = MBR(measure)
+        meter.quarters = self.translate(position)
+        
+        next_meter = self.filter(lambda i: type(i) is Meter).find(lambda i: i.position > position)
+        split = self.end if next_meter is None else next_meter.position
+        realign = self.filter(lambda i: position < i.position <= split and type(i) is not Meter)
+        shift   = self.filter(lambda i: i.position > split)
+        
+        if next_meter is not None:
+            next_meter.quarters += -(next_meter.quarters-meter.quarters) % meter.bar_length
+            original = next_meter.position.measure
+            
+        quarters = [self.translate(i.position) for i in realign]
+        quarters = [q+(-(q-meter.quarters)%meter.bar_length) for q in quarters]
+        quarters = iter(quarters)
+
+        existed = self.find(lambda i: i.position == position and type(i) is Meter)
+        if existed is not None:
+            self.remove(existed)
+        self.insert(position,meter)
+        
+        for item in realign:
+            item.position = self.translate(next(quarters))
+
+        if next_meter is not None:
+            next_meter.position = self.translate(next_meter.quarters)
+            measure_change = next_meter.position.measure - original
+
+            for item in shift:
+                item.position = MBR(item.position.measure+measure_change,item.position.beat,item.position.remnant)
+                if hasattr(item,'quarters'):
+                    item.quarters = self.translate(item.position)
+
+
+    def set_key(self,measure,key):
+        position = MBR(measure)
+        
+        existed = self.find(lambda i: type(i) is key and i.position == position)
+        if existed is not None:
+            self.remove(existed)
+        
+        self.insert(position,key)
+
+    def del_key(self,measure):
+        position = MBR(measure)
+        
+        existed = self.find(lambda i: type(i) is Key and i.position == position)
+        if existed is not None:
+            self.remove(existed)
+    def del_meter(self,measure):
+        position = MBR(measure)
+        
+        existed = self.find(lambda i: type(i) is Meter and i.position == position)
+        if existed is not None:
+            before   = self.get_meter(position)
+            temporal = before.copy
+            self.set_meter(position.measure,temporal)
+            self.remove(temporal)
+
+    def filter(self,criteria):
+        s = System(key=None,meter=None)
+        for i in filter(criteria,self):
+            s.insert(i.position,i)
+        return s
+'''
 class Voice(Stream):
 
     @property
@@ -625,13 +656,15 @@ class Voice(Stream):
 
         if self._is_occupied(pos,item):
             raise RuntimeError('collided with existed items.')
-        '''
+'''
+'''
         for item in self:
             if item.position > pos:
                 insert_point = self.items.index(item)
         else:
             insert_point = len(self.items)
-        '''
+'''
+'''
         supe().insert(pos,item)
         
     def remove(self,item):
@@ -664,5 +697,60 @@ class Voice(Stream):
         self.system = System() if sys is None else sys
         super().__init__()
         
+'''
 
+class Voice(Stream):
 
+    @property
+    def voice_number(self):
+        return self._voice_number
+    
+    @property
+    def end(self):
+        
+        stops = []
+        for item in self:
+            if hasattr(item,'duration'):
+                stops.append(self.system.translate(self.system.translate(item.position)+item.duration))
+            else:
+                stops.append(item.position)
+        
+        return max(stops) if len(stops) > 0 else MBR(1)
+
+    def filter(self,criteria):
+        s = Voice(self.voice_number,self.system.filter(criteria))
+        for i in filter(criteria,self):
+            s.insert(i.position,i)
+        return s
+        
+    def measure(self,start,stop=None):
+        
+        stop  = MBR(start+1) if stop is None else MBR(stop)
+        start = MBR(start)
+        
+        return self.fr(start).to(stop)
+
+    def __init__(self,voice_num = 1, sys = None):
+
+        self._voice_number = voice_num
+        self.system = System() if sys is None else sys
+        
+        super().__init__()
+
+    def __str__(self):
+        i = j = 0
+        lines = []
+        while i < len(self) or j < len(self.system):
+            if i >= len(self):
+                lines.append('{:<12} {:>24}'.format(str(self.system[j].position),str(self.system[j])))
+                j += 1
+            elif j >= len(self.system):
+                lines.append('{:<12} {:>24}'.format(str(self[i].position),str(self[i])))
+                i += 1
+            elif self[i].position < self.system[j].position:
+                lines.append('{:<12} {:>24}'.format(str(self[i].position),str(self[i])))
+                i += 1
+            else:
+                lines.append('{:<12} {:>24}'.format(str(self.system[j].position),str(self.system[j])))
+                j += 1
+        return '\n'.join(lines)
