@@ -289,6 +289,14 @@ class Stream(object):
     _priority = {Key:0,Meter:1,Note:2,Rest:3}#{,Chord:4}
 
     @property
+    def first(self):
+        return self[0] if len(self) > 0 else None
+
+    @property
+    def last(self):
+        return self[-1] if len(self) > 0 else None
+
+    @property
     def end(self):
         from cmat.basic import Quarters
         
@@ -388,8 +396,7 @@ class Stream(object):
     def __repr__(self):
         return str(self)
 
-class System(Stream):
-    
+class System(Stream):    
     @property
     def end(self):
         
@@ -448,21 +455,24 @@ class System(Stream):
 
     def get_meter(self,position):
         meters = self.filter(lambda i: type(i) is Meter)
+        if len(meters) == 0:
+            return None
+
         if isinstance(position,MBR):
             return meters.rfind(lambda i: getattr(i,'position') < position \
-                                       or getattr(i,'position') == MBR(1))
+                                       or getattr(i,'position') == self.first.position)
         else:
             return meters.rfind(lambda i: getattr(i,'quarters') < position \
-                                       or getattr(i,'quarters') == 0)
+                                       or getattr(i,'quarters') == self.first.quarters)
         
     def get_key(self,position):
         keys = self.filter(lambda i: type(i) is Key)
         if isinstance(position,MBR):
             return keys.rfind(lambda i: getattr(i,'position') < position \
-                                     or getattr(i,'position') == MBR(1))
+                                     or getattr(i,'position') == self.first.position)
         else:
             return keys.rfind(lambda i: getattr(i,'quarters') < position \
-                                     or getattr(i,'quarters') == 0)
+                                     or getattr(i,'quarters') == self.first.quarters)
     
     def set_meter(self,measure,meter):
         position = MBR(measure)
@@ -518,73 +528,6 @@ class System(Stream):
         for i in filter(criteria,self):
             s.items.append(i)
         return s
-'''
-class Voice(Stream):
-
-    @property
-    def end(self):
-        return self.system.translate(super().end)
-        
-    @property
-    def voice_number(self):
-        return self._voice_number
-        
-    @property
-    def copy(self):
-        v = Voice(vc=self.voice_number,sys=self.system)
-        for item in self:
-            v.insert(item.posoition,item)
-        return v
-        
-    def append(self,item):
-        self.insert(self.end,item)
-    
-    def insert(self,pos,item):
-
-        if self._is_occupied(pos,item):
-            raise RuntimeError('collided with existed items.')
-'''
-'''
-        for item in self:
-            if item.position > pos:
-                insert_point = self.items.index(item)
-        else:
-            insert_point = len(self.items)
-'''
-'''
-        supe().insert(pos,item)
-        
-    def remove(self,item):
-        self.items.remove(item)
-
-    def _is_occupied(self,position,item):
-        p1 = p2 = self.system.translate(position)
-        if hasattr(item,'duration'):
-            p2 = p2+item.duration
-
-        for i in self:
-            p3 = p4 = self.system.translate(i.position)
-            if hasattr(i,'duration'):
-                p4 = p4+i.duration
-
-            if self._is_colliding(p1,p2,p3,p4):
-                return i
-        else:
-            return False
-
-    def _is_colliding(self,p1,p2,p3,p4):
-        if p1 < p3 < p2 or p1 < p4 < p2:
-            return True
-        if p3 < p1 < p4 or p3 < p2 < p4:
-            return True
-        return False4
-
-    def __init__(self,vc=1,sys=None):
-        self._voice_number = vc
-        self.system = System() if sys is None else sys
-        super().__init__()
-        
-'''
 
 class Voice(Stream):
 
@@ -613,6 +556,36 @@ class Voice(Stream):
         for i in filter(criteria,self):
             s.insert(i.position,i)
         return s
+
+    def fr(self,position):
+        sys = System(key=None,meter=None)
+        
+        p2  = MBR(position.measure)
+        key = self.find(lambda k: type(k) is Key and k.position == p2)
+        if key is None:
+            key = self.system.get_key(p2).copy
+        key = key.copy
+        key._position = p2    
+        key._quarters = self.system.translate(p2)
+        key._container = sys
+        sys.items.append(key)
+        
+        meter = self.find(lambda m: type(m) is Meter and m.position == p2)
+        if meter is None:
+            meter = self.system.get_meter(p2)
+        meter = meter.copy
+        meter._position = p2
+        meter._quarters = self.system.translate(p2)
+        meter._container = sys
+
+        sys.items.append(meter)
+        
+        v = Voice(self.voice_number,sys)
+        
+        for i in filter(lambda i: i.position >= position,self):
+            v.insert(i.position,i)
+
+        return v
         
     def measure(self,start,stop=None):
         
