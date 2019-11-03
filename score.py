@@ -579,13 +579,21 @@ class Voice(Stream):
         meter._container = sys
 
         sys.items.append(meter)
-        
+ 
+        for item in self.system.filter(lambda i: i.position > p2):
+            sys.insert(item.position,item)
+       
         v = Voice(self.voice_number,sys)
         
         for i in filter(lambda i: i.position >= position,self):
             v.insert(i.position,i)
 
         return v
+
+    def to(self,position):
+        v = Voice(self.voice_number,self.system.to(position))
+        for i in filter(lambda i: i.position < position,self):
+            v.insert(i.position,i)
         
     def measure(self,start,stop=None):
         
@@ -593,6 +601,18 @@ class Voice(Stream):
         start = MBR(start)
         
         return self.fr(start).to(stop)
+
+    def set_meter(self,measure,meter):
+        pass
+
+    def set_key(self,measure,meter):
+        pass
+
+    def del_meter(self,measure):
+        pass
+
+    def del_key(self,measure):
+        pass
 
     def __init__(self,voice_num = 1, sys = None):
 
