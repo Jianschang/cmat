@@ -445,7 +445,7 @@ class Stream(object):
 
     @property
     def last(self):
-        return self[0]
+        return self[-1]
 
     @property
     def end(self):
@@ -557,9 +557,13 @@ class Stream(object):
 
     def __getitem__(self,index):
         if isinstance(index,slice):
-            return Stream(*self.items[index.start-1:index.stop-1:index.step])
+            start = index.start-1 if index.start>0 else index.start
+            stop  = index.stop -1 if index.stop >0 else index.stop
+            return Stream(*self.items[start:stop:index.step])
         else:
-            return self.items[index-1]
+            if index > 0:
+                index -= 1
+            return self.items[index]
 
     def __len__(self):
         return len(self.items)
@@ -746,24 +750,29 @@ class System(Stream):
         return self.filter(lambda i: i.position < position)
         
     def translate(self,position):
-        meter = self.meters.ut(position).last    # previous meter
-        beat_length = meter.size
+        if isinstance(position,MBR):
+            start = self.first.position
+            meter = self.meters.filter(lambda i:i.position<position or i.position==start).last
+        else:
+            start = self.first.quarters
+            meter = self.meters.filter(lambda i:i.quarters<position or i.quarters==start).last
+        beat_length = meter.size.quarters
         bar_length  = meter.bar_length
 
         if isinstance(position,MBR):
             m = bar_length * (position.measure - meter.position.measure)
-            b = beat_length * position.beat
+            b = beat_length * (position.beat-1)
             
             return meter.quarters + m + b + position.remnant
 
         else:
-            d = position.quarters - meter.quarters
+            d = position - meter.quarters
             m = d // bar_length
             b = d % bar_length // beat_length
             r = d % beat_length
             m += meter.position.measure
             
-            return MBR(m,b,r)
+            return MBR(m,b+1,r)
 
     def __init__(self,key=Key(C,major),meter=Meter(4,4),starting=1):
         super().__init__()
