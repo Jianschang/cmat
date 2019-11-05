@@ -320,121 +320,6 @@ class Rest(StreamItem):
     def __repr__(self):
         return str(self)
 
-
-'''
-class Stream(object):
-
-    _priority = {Key:0,Meter:1,Note:2,Rest:3}#{,Chord:4}
-
-    @property
-    def first(self):
-        return self[0] if len(self) > 0 else None
-
-    @property
-    def last(self):
-        return self[-1] if len(self) > 0 else None
-
-    @property
-    def end(self):
-        from cmat.basic import Quarters
-        
-        stop = [i.position+i.duration if hasattr(i,'duration') else i.position for i in self]
-        return max(stop) if len(stop) > 0 else Quarters(0)
-
-    def insert(self,position,item):
-
-        pr = self._priority
-        i = self.index(lambda i: i.position > position or (i.position==position
-                                                       and pr[type(i)] > pr[type(item)]))
-        if i is None:
-            i = len(self)
-
-        item._container = self
-        item.position = position
-        self.items.insert(i,item)
-
-    def append(self,item):
-        self.insert(self.end,item)
-
-    def remove(self,item):
-        self.items.remove(item)
-        
-    def realign(self):
-        self.items.sort(key=lambda i: [i.position, self._priority[type(i)]])
-
-    def filter(self,criteria):
-        s = Stream()
-        for i in filter(criteria,self):
-            s.insert(i.position,i)
-        return s
-
-    def fr(self,position):
-        return self.filter(lambda i: i.position >= position)
-
-    def to(self,position):
-        return self.filter(lambda i: i.position < position)
-
-    def at(self,position):
-        return self.filter(lambda i: i.position == position)
-
-    def find(self,criteria):
-        for i in self:
-            if criteria(i):
-                return i
-        else:
-            return None
-
-    def rfind(self,criteria):
-        for i in reversed(self):
-            if criteria(i):
-                return i
-        else:
-            return None
-
-    def index(self,criteria):
-        for idx,item in enumerate(self):
-            if criteria(item):
-                return idx
-        else:
-            return None
-        
-    def rindex(self,criteria):
-        for idx in reversed(range(len(self))):
-            if criteria(self[idx]):
-                return idx
-        else:
-            return None
-        
-    def __init__(self,*items):
-        self.items = []
-        
-        for item in items:
-            self.append(items)
-        
-    def __iter__(self):
-        return iter(self.items)
-        
-    def __contains__(self,item):
-        return item in self.items
-
-    def __getitem__(self,index):
-        return self.items[index]
-
-    def __len__(self):
-        return len(self.items)
-        
-    def __str__(self):
-
-        lines = []
-        for item in self:
-            lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
-        
-        return '\n'.join(lines)
-                                                
-    def __repr__(self):
-        return str(self)
-'''
-
 class Stream(object):
 
     insert_priority = {Key:0,Meter:1,Note:2,Rest:3} # Chord:4}
@@ -505,6 +390,17 @@ class Stream(object):
         return s
 
     def find(self,criteria):
+        from inspect import isfunction
+        
+        if isinstance(criteria,type):
+            t = criteria
+            criteria = lambda i: isinstance(i,t)
+        elif isfunction(criteria):
+            pass
+        else:
+            obj = criteria
+            criteria = lambda i: i is obj
+
         for item in self:
             if criteria(item):
                 return item
@@ -512,6 +408,17 @@ class Stream(object):
             return None
 
     def rfind(self,criteria):
+        from inspect import isfunction
+        
+        if isinstance(criteria,type):
+            t = criteria
+            criteria = lambda i: isinstance(i,t)
+        elif isfunction(criteria):
+            pass
+        else:
+            obj = criteria
+            criteria = lambda i: i is obj
+            
         for item in reversed(self):
             if criteria(item):
                 return item
@@ -519,6 +426,18 @@ class Stream(object):
             return None
 
     def index(self,criteria):
+        from inspect import isfunction
+        
+        if isinstance(criteria,type):
+            t = criteria
+            criteria = lambda i: isinstance(i,t)
+        elif isfunction(criteria):
+            pass
+        else:
+            obj = criteria
+            criteria = lambda i: i is obj
+
+
         for index,item in enumerate(self):
             if criteria(item):
                 return index + 1
@@ -526,8 +445,19 @@ class Stream(object):
             return None
 
     def rindex(self,criteria):
-        for index in range(self.count,1,-1):
-            if criteria(self[i]):
+        from inspect import isfunction
+        
+        if isinstance(criteria,type):
+            t = criteria
+            criteria = lambda i: isinstance(i,t)
+        elif isfunction(criteria):
+            pass
+        else:
+            obj = criteria
+            criteria = lambda i: i is obj
+
+        for index in range(self.count,0,-1):
+            if criteria(self[index]):
                 return index
         else:
             return None
