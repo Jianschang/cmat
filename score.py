@@ -310,7 +310,7 @@ class Stream(object):
 
     @property
     def count(self):
-        return len(self)
+        return len(self.items)
 
 
     def insert(self,item,position=None):
@@ -327,18 +327,18 @@ class Stream(object):
             pos = position
 
         # index criteria
-        def bypass(i):
+        def after_pos(i):
             return i.position>pos or i.position==pos and p[type(i)]>p[type(item)]
 
-        insert_point = self.index(bypass)
+        insert_point = self.index(after_pos)    # index returned starts from 1
 
         if insert_point is None:
             insert_point = self.count + 1
 
 
-        self.items.insert(insert_point-1,item) # index returned starts from 1
+        self.items.insert(insert_point-1,item)
 
-        # mark container
+        # mark container, container always points to the first.
         if item._container is None:
             item._container = self
 
@@ -375,14 +375,14 @@ class Stream(object):
     def index(self,criteria):
         for index,item in enumerate(self.items):
             if criteria(item):
-                return index + 1
+                return index + 1    # index starts from 1
         else:
             return None
 
     def rindex(self,criteria):
         for index in reversed(range(self.count)):
             if criteria(self.items[index]):
-                return index + 1
+                return index + 1    # index starts from 1
         else:
             return None
 
@@ -416,6 +416,8 @@ class Stream(object):
         return item in self.items
 
     def __getitem__(self,index):
+
+        # index starts from 1
         if isinstance(index,slice):
             s1 = index.start-1 if index.start>0 else index.start
             s2 = index.stop-1 if index.stop>0 else index.stop
