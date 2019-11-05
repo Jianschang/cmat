@@ -1,11 +1,9 @@
-from cmat.basic   import C
+from cmat.basic   import Quarters,C
 from cmat.quality import major
 
 # comments
 
 class MBR(object):
-
-    from cmat.basic import Quarters
     
     @property
     def measure(self):
@@ -22,7 +20,6 @@ class MBR(object):
     def __init__(self,measure,beat=1,remnant=Quarters(0)):
 
         from numbers import Real
-        from cmat.basic import Quarters
 
         self._measure = measure
         self._beat    = beat
@@ -111,40 +108,6 @@ class MBR(object):
         else:
             return False
 
-'''
-class StreamItem(object):
-    
-    @property
-    def position(self):
-        return self._quarters if self._position is None else self._position
-
-    @position.setter
-    def position(self,pos):
-        if isinstance(pos,MBR):
-            self._position = pos
-            if self._container is not None and hasattr(self._container,'system'):
-                self._quarters = self._container.system.translate(pos)
-        else:
-            self._quarters = pos
-            if self._container is not None and hasattr(self._container,'system'):
-                self._position = self._container.system.translate(pos)
-
-    @property
-    def quarters(self):
-        return self._quarters
-
-    @quarters.setter
-    def quarters(self,pos):
-        self._quarters = pos
-        if self._container is not None and hasattr(self._container,'system'):
-            self._position = self._container.system.translate(pos)
-
-    def __init__(self):
-        self._container = None
-        self._position  = None
-        self._quarters  = None
-'''
-
 class StreamItem(object):
 
     def __init__(self):
@@ -159,7 +122,6 @@ class StreamItem(object):
 
     @position.setter
     def position(self,position):
-        from cmat.basic import Quarters
         
         if isinstance(position,MBR):
             self._position = position
@@ -320,164 +282,132 @@ class Rest(StreamItem):
     def __repr__(self):
         return str(self)
 
+
+
 class Stream(object):
 
-    insert_priority = {Key:0,Meter:1,Note:2,Rest:3} # Chord:4}
-    
+    priority = {Key:0,Meter:1,Note:2,Rest:3} # Chord:4}
+
     @property
     def first(self):
-        return self[1]
+        return self.items[0]
 
     @property
     def last(self):
-        return self[-1]
+        return self.items[-1]
 
     @property
     def end(self):
-        from cmat.basic import Quarters
-    
-        stop = []
-        for item in self:
+        ends = []
+        for item in self.items:
             if hasattr(item,'duration'):
-                stop.append(item.quarters + item.duration)
+                ends.append(item.quarters + item.duration)
             else:
-                stop.append(item.quarters)
+                ends.append(item.quarters)
 
-        end = max(stop) if len(stop) > 0 else Quarters(0)
-        return self.system.translate(end) if hasattr(self,'system') else end    
-        
+        end = max(ends) if len(ends) > 0 else Quarters(0)
+        return self.system.translate(end) if hasattr(self,'system') else end
+
     @property
     def count(self):
         return len(self)
 
-    def insert(self,item,position):
-        ip = self.insert_priority
-        
-        insert_index = self.index(lambda i: i.position >  position or (\
-                                            i.position == position and \
-                                            ip[type(i)] > ip[type(item)]))
 
-        if insert_index is None:
-            insert_index = self.count + 1
+    def insert(self,item,position=None):
 
-        self.items.insert(insert_index - 1,item)
+        p = self.priority
 
-        item._container = self
-        item.position = position
+        # insert at given pos or pos carried on item or stream end.
+        if position is None:
+            if hasattr(item,'position') and item.position is not None:
+                pos = item.position
+            else:
+                pos = self.end
+        else:
+            pos = position
 
-    def append(self,*items):
+        # index criteria
+        def bypass(i):
+            return i.position>pos or i.position==pos and p[type(i)]>p[type(item)]
 
+        insert_point = self.index(bypass)
+
+        if insert_point is None:
+            insert_point = self.count + 1
+
+
+        self.items.insert(insert_point-1,item) # index returned starts from 1
+
+        # mark container
+        if item._container is None:
+            item._container = self
+
+        # set position attribute
+        item.position = pos
+
+    def append(self, *items):
         for item in items:
             self.insert(item,self.end)
-    
-    def remove(self,criteria,position=None):
-        candidates = self if position is None else self.filter(lambda i: i.position == position)
-        
-        if callable(criteria):
-            candidates = candidates.filter(criteria)
-        elif isinstance(criteria,type):
-            candidates = candidates.filter(lambda i: type(i) is criteria)
-        else:
-            candidates = candidates.filter(lambda i: i is criteria)
-        
-        for item in candidates:
-            self.items.remove(item)
+
+    def remove(self,item):
+        self.items.remove(item)
 
     def filter(self,criteria):
-        s = self.__class__()
+        s = Stream()
         for item in filter(criteria,self):
             s.items.append(item)
         return s
 
     def find(self,criteria):
-        from inspect import isfunction
-        
-        if isinstance(criteria,type):
-            t = criteria
-            criteria = lambda i: isinstance(i,t)
-        elif isfunction(criteria):
-            pass
-        else:
-            obj = criteria
-            criteria = lambda i: i is obj
-
-        for item in self:
+        for item in self.items:
             if criteria(item):
                 return item
         else:
             return None
 
     def rfind(self,criteria):
-        from inspect import isfunction
-        
-        if isinstance(criteria,type):
-            t = criteria
-            criteria = lambda i: isinstance(i,t)
-        elif isfunction(criteria):
-            pass
-        else:
-            obj = criteria
-            criteria = lambda i: i is obj
-            
-        for item in reversed(self):
+        for item in reversed(self.items):
             if criteria(item):
                 return item
         else:
             return None
 
     def index(self,criteria):
-        from inspect import isfunction
-        
-        if isinstance(criteria,type):
-            t = criteria
-            criteria = lambda i: isinstance(i,t)
-        elif isfunction(criteria):
-            pass
-        else:
-            obj = criteria
-            criteria = lambda i: i is obj
-
-
-        for index,item in enumerate(self):
+        for index,item in enumerate(self.items):
             if criteria(item):
                 return index + 1
         else:
             return None
 
     def rindex(self,criteria):
-        from inspect import isfunction
-        
-        if isinstance(criteria,type):
-            t = criteria
-            criteria = lambda i: isinstance(i,t)
-        elif isfunction(criteria):
-            pass
-        else:
-            obj = criteria
-            criteria = lambda i: i is obj
-
-        for index in range(self.count,0,-1):
-            if criteria(self[index]):
-                return index
+        for index in reversed(range(self.count)):
+            if criteria(self.items[index]):
+                return index + 1
         else:
             return None
 
     def sort(self):
-        self.items.sort(key=lambda i: [i.position, self.insert_priority[type(i)]])
-    
+        self.items.sort(key=lambda i:[i.position,self.priority[type(i)]])
+
     def fr(self,position):
-        return self.filter(lambda i: i.position >= position)
+        if isinstance(position,MBR):
+            return self.filter(lambda i:i.position >= position)
+        else:
+            return self.filter(lambda i:i.quarters >= position)
 
     def ut(self,position):
-        return self.filter(lambda i: i.position < position)
+        if isinstance(position,MBR):
+            return self.filter(lambda i:i.position < position)
+        else:
+            return self.filter(lambda i:i.quarters < position)
 
-    def __init__(self,*items):
+
+
+    def __init__(self, *items):
+
         self.items = []
         for item in items:
-            if hasattr(item,'position') and item.position is not None:
-                self.insert(item,item.position)
-            else:
-                self.append(item)
+            self.insert(item)
 
     def __iter__(self):
         return iter(self.items)
@@ -487,340 +417,72 @@ class Stream(object):
 
     def __getitem__(self,index):
         if isinstance(index,slice):
-            start = index.start-1 if index.start>0 else index.start
-            stop  = index.stop -1 if index.stop >0 else index.stop
-            return Stream(*self.items[start:stop:index.step])
+            s1 = index.start-1 if index.start>0 else index.start
+            s2 = index.stop-1 if index.stop>0 else index.stop
+            return Stream(*self.items[s1:s2:index.step])
+
         else:
-            if index > 0:
+            if index>0:
                 index -= 1
             return self.items[index]
 
     def __len__(self):
         return len(self.items)
-        
-    def __str__(self):
 
+    def __str__(self):
         lines = []
-        for item in self:
+        for item in self.items:
             lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
-        
         return '\n'.join(lines)
-                                                
+
     def __repr__(self):
         return str(self)
-
-'''
-class System(Stream):    
-    @property
-    def end(self):
-        
-        stops = []
-        for item in self:
-            if hasattr(item,'duration'):
-                stops.append(self.translate(item.quarters + item.duration))
-            else:
-                stops.append(item.position)
-        
-        return max(stops) if len(stops) > 0 else MBR(1)
-
-    def translate(self,position):
-        meter = self.get_meter(position)
-        if meter is None:
-            raise RuntimeError('reference meter not found.')
-            
-        beat       = meter.size
-        bar_length = meter.bar_length
-        
-        if isinstance(position,MBR):
-            m = position.measure - meter.position.measure
-            b = position.beat - 1
-            r = position.remnant
-            return meter.quarters + bar_length*m + beat*b + r
-        else:
-            m = (position - meter.quarters) // bar_length + meter.position.measure
-            b = (position - meter.quarters) % bar_length // beat + 1
-            r = (position - meter.quarters) % bar_length % beat
-            return MBR(m,b,r)
-
-    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
-        from cmat.basic import Quarters
-        
-        self.items = []
-        self.system = self
-        
-        if key is not None:
-            key._quarters = Quarters(0)
-            key._position = MBR(1)
-            key._container = self
-            self.items.append(key)
-        if meter is not None:
-            meter._quarters = Quarters(0)
-            meter._position = MBR(1)
-            meter._container = self
-            self.items.append(meter)
-
-    def __str__(self):
-
-        lines = []
-        for item in self:
-            lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
-        
-        return '\n'.join(lines)
-
-    def get_meter(self,position):
-        meters = self.filter(lambda i: type(i) is Meter)
-        if len(meters) == 0:
-            return None
-
-        if isinstance(position,MBR):
-            return meters.rfind(lambda i: getattr(i,'position') < position \
-                                       or getattr(i,'position') == self.first.position)
-        else:
-            return meters.rfind(lambda i: getattr(i,'quarters') < position \
-                                       or getattr(i,'quarters') == self.first.quarters)
-        
-    def get_key(self,position):
-        keys = self.filter(lambda i: type(i) is Key)
-        if isinstance(position,MBR):
-            return keys.rfind(lambda i: getattr(i,'position') < position \
-                                     or getattr(i,'position') == self.first.position)
-        else:
-            return keys.rfind(lambda i: getattr(i,'quarters') < position \
-                                     or getattr(i,'quarters') == self.first.quarters)
-    
-    def set_meter(self,measure,meter):
-        position = MBR(measure)
-        
-        next_meter  = self.filter(lambda i: type(i) is Meter).find(lambda i: i.position > position)
-        split_point = position if next_meter is None else next_meter.position
-
-        existed = self.find(lambda m: type(m) is Meter and m.position == position)
-        if existed is not None:
-            self.items.remove(existed)
-
-        self.insert(position,meter)
-
-        shift = -(next_meter.quarters-meter.quarters)%meter.bar_length if next_meter is not None else 0
-
-        for item in self.filter(lambda i: meter.position < i.position < split_point):
-            item.quarters += -(item.quarters-meter.quarters) % meter.bar_length
-
-        for m in self.filter(lambda i: type(i) is Meter and i.position >= split_point):
-            m.quarters = m.quarters + shift
-        
-        for item in self.filter(lambda i: type(i) is not Meter and i.position >= split_point):
-            item.quarters += shift
-
-    def set_key(self,measure,key):
-        position = MBR(measure)
-        
-        existed = self.find(lambda i: type(i) is key and i.position == position)
-        if existed is not None:
-            self.remove(existed)
-        
-        self.insert(position,key)
-
-    def del_key(self,measure):
-        position = MBR(measure)
-        
-        existed = self.find(lambda i: type(i) is Key and i.position == position)
-        if existed is not None:
-            self.remove(existed)
-    
-    def del_meter(self,measure):
-        position = MBR(measure)
-        
-        existed = self.find(lambda i: type(i) is Meter and i.position == position)
-        if existed is not None:
-            before   = self.get_meter(position)
-            temporal = before.copy
-            self.set_meter(position.measure,temporal)
-            self.remove(temporal)
-
-    def filter(self,criteria):
-        s = System(key=None,meter=None)
-        for i in filter(criteria,self):
-            s.items.append(i)
-        return s
-'''
-
 
 class System(Stream):
 
     @property
     def keys(self):
-        return self.filter(lambda i: isinstance(i,Key))
+        return self.filter(lambda i:isinstance(i,Key))
 
     @property
     def meters(self):
-        return self.filter(lambda i: isinstance(i,Meter))
+        return self.filter(lambda i:isinstance(i,Meter))
 
-    def insert(self,item,measure,beat=1,remnant=0):
-        position = MBR(measure,beat,remnant)
-        
-        super().insert(item,position)
-    
-    def remove(self,criteria,measure=None,beat=1,remnant=0):
-        position = None if measure is None else MBR(measure,beat,remnant)
-        
-        super().remove(criteria,position)
-        
-    def filter(self,criteria):
-        s = System(key=None,meter=None)
-        for item in filter(criteria,self):
-            s.items.append(item)
-        return s
+    def __init__(self,key,meter):
 
-    def fr(self,measure,beat=1,remnant=0):
-        position = MBR(measure,beat,remnant)
-        return self.filter(lambda i: i.position >= position)
-
-    def ut(self,measure,beat=1,remnant=0):
-        position = MBR(measure,beat,remnant)
-        return self.filter(lambda i: i.position < position)
-        
-    def translate(self,position):
-        if isinstance(position,MBR):
-            start = self.first.position
-            meter = self.meters.filter(lambda i:i.position<position or i.position==start).last
-        else:
-            start = self.first.quarters
-            meter = self.meters.filter(lambda i:i.quarters<position or i.quarters==start).last
-        beat_length = meter.size.quarters
-        bar_length  = meter.bar_length
-
-        if isinstance(position,MBR):
-            m = bar_length * (position.measure - meter.position.measure)
-            b = beat_length * (position.beat-1)
-            
-            return meter.quarters + m + b + position.remnant
-
-        else:
-            d = position - meter.quarters
-            m = d // bar_length
-            b = d % bar_length // beat_length
-            r = d % beat_length
-            m += meter.position.measure
-            
-            return MBR(m,b+1,r)
-
-    def __init__(self,key=Key(C,major),meter=Meter(4,4),starting=1):
         super().__init__()
-        if key is not None:
-            self.insert(key,starting)
-            key.quarters = 0
-        if meter is not None:
-            self.insert(meter,starting)
-            meter.quarters = 0
+
+        self.insert(key,MBR(1))
+        self.insert(meter,MBR(1))
+
+        key.quarters   = Quarters(0)
+        meter.quarters = Quarters(0)
 
         self.system = self
 
+    def translate(self,position):
+
+        reference = self.meters.ut(position).last
+
+        bar_length  = reference.bar_length
+        beat_length = reference.size.quarters
+
+        if isinstance(position,MBR):
+            q =  reference.quarters
+            q += bar_length * (position.measure - reference.position.measure)
+            q += beat_length * (position.beat - 1)
+            q += position.remnant
+            return q
+        else:
+            position = Quarters(position)
+            distance = position - reference.quarters
+            m = distance // bar_length + reference.position.measure
+            b = distance %  bar_length // beat_length + 1
+            r = distance %  beat_length
+
+            return MBR(m,b,r)
+
+
+
 class Voice(Stream):
-
-    @property
-    def voice_number(self):
-        return self._voice_number
-    
-    @property
-    def end(self):
-        
-        stops = []
-        for item in self:
-            if hasattr(item,'duration'):
-                stops.append(self.system.translate(item.quarters+item.duration))
-            else:
-                stops.append(item.position)
-        
-        return max(stops) if len(stops) > 0 else MBR(1)
-        
-    @property
-    def notes(self):
-        return list(self.filter(lambda i: type(i) is Note))
-
-    def filter(self,criteria):
-        s = Voice(self.voice_number,self.system)
-        for i in filter(criteria,self):
-            s.insert(i.position,i)
-        return s
-
-    def fr(self,position):
-        sys = System(key=None,meter=None)
-        
-        p2  = MBR(position.measure)
-        key = self.find(lambda k: type(k) is Key and k.position == p2)
-        if key is None:
-            key = self.system.get_key(p2).copy
-        key = key.copy
-        key._position = p2    
-        key._quarters = self.system.translate(p2)
-        key._container = sys
-        sys.items.append(key)
-        
-        meter = self.find(lambda m: type(m) is Meter and m.position == p2)
-        if meter is None:
-            meter = self.system.get_meter(p2)
-        meter = meter.copy
-        meter._position = p2
-        meter._quarters = self.system.translate(p2)
-        meter._container = sys
-
-        sys.items.append(meter)
- 
-        for item in self.system.filter(lambda i: i.position > p2):
-            sys.insert(item.position,item)
-       
-        v = Voice(self.voice_number,sys)
-        
-        for i in filter(lambda i: i.position >= position,self):
-            v.insert(i.position,i)
-
-        return v
-
-    def to(self,position):
-        v = Voice(self.voice_number,self.system.to(position))
-        for i in filter(lambda i: i.position < position,self):
-            v.insert(i.position,i)
-        
-    def measure(self,start,stop=None):
-        
-        stop  = MBR(start+1) if stop is None else MBR(stop)
-        start = MBR(start)
-        
-        return self.fr(start).to(stop)
-
-    def set_meter(self,measure,meter):
-        pass
-
-    def set_key(self,measure,meter):
-        pass
-
-    def del_meter(self,measure):
-        pass
-
-    def del_key(self,measure):
-        pass
-
-    def __init__(self,voice_num = 1, sys = None):
-
-        self._voice_number = voice_num
-        self.system = System() if sys is None else sys
-        
-        super().__init__()
-
-    def __str__(self):
-        i = j = 0
-        lines = []
-        while i < len(self) or j < len(self.system):
-            if i >= len(self):
-                lines.append('{:<12} {:>24}'.format(str(self.system[j].position),str(self.system[j])))
-                j += 1
-            elif j >= len(self.system):
-                lines.append('{:<12} {:>24}'.format(str(self[i].position),str(self[i])))
-                i += 1
-            elif self[i].position < self.system[j].position:
-                lines.append('{:<12} {:>24}'.format(str(self[i].position),str(self[i])))
-                i += 1
-            else:
-                lines.append('{:<12} {:>24}'.format(str(self.system[j].position),str(self.system[j])))
-                j += 1
-        return '\n'.join(lines)
+    pass
