@@ -450,7 +450,7 @@ class System(Stream):
     def meters(self):
         return self.filter(lambda i:isinstance(i,Meter))
 
-    def __init__(self,key,meter):
+    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
 
         super().__init__()
 
@@ -484,6 +484,31 @@ class System(Stream):
 
             return MBR(m,b,r)
 
+    def set_meter(self,measure,meter):
+        position = MBR(measure)
+        quarters = self.translate(position)
+        meters_followed = self.meters.filter(lambda m:m.position > position)
+
+        realign = self.fr(position)
+
+        if meters_followed.count > 0:
+            realign = realign.ut(meters_followed.first.position)
+        
+        self.insert(meter,position)
+        
+        if meters_followed.count > 0:
+            next_meter = meters_followed.first
+            shift = -(next_meter.quarters - quarters) %  meter.bar_length
+            items_followed = self.filter(lambda i:i.quarters >= next_meter.quarters \
+                                                and not isinstance(i,Meter))
+            
+            for meter in meters_followed:
+                meter.quarters += shift
+            for item in items_followed:
+                item.quarters  += shift
+                
+        for item in realign:
+            item.quarters += -(item.quarters-quarters) % meter.bar_length
 
 
 class Voice(Stream):
