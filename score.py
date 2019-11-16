@@ -123,6 +123,7 @@ class StreamItem(object):
     @position.setter
     def position(self,position):
         
+        #print(self,self._container)
         if isinstance(position,MBR):
             self._position = position
             if self._container is not None and hasattr(self._container,'system'):
@@ -335,7 +336,6 @@ class Stream(object):
         if insert_point is None:
             insert_point = self.count + 1
 
-
         self.items.insert(insert_point-1,item)
 
         # mark container, container always points to the first.
@@ -512,4 +512,36 @@ class System(Stream):
 
 
 class Voice(Stream):
-    pass
+    
+    @property
+    def voice_number(self):
+        return self._voice_number
+
+    def __init__(self,sys=None,vn=1):
+        
+        super().__init__()
+        self._voice_number = vn
+        self.system = System() if sys is None else sys
+
+    
+    def filter(self,criteria):
+        v = Voice(self.system,self.voice_number)
+        for item in self.items:
+            if criteria(item):
+                self.items.append(item)
+        return v
+    
+    def insert(self,item,measure,beat=1,remnant=0):
+        item.voice_number = self.voice_number
+        super().insert(item,MBR(measure,beat,remnant))
+
+    def measure(self,measure):
+        self.fr(measure).ut(measure+1)
+    
+    def fr(self,measure,beat=1,remnant=0):
+        return self.filter(lambda i: i.position >= MBR(measure,beat,remnant))
+    
+    def ut(self,measure,beat=1,remnant=0):
+        return self.filter(lambda i: i.position < MBR(measure,beat,remnant))
+
+
