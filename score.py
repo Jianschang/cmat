@@ -114,7 +114,7 @@ class StreamItem(object):
     
         self._position  = None
         self._quarters  = None
-        self._container = None
+        self.site = None
 
     @property
     def position(self):
@@ -123,15 +123,15 @@ class StreamItem(object):
     @position.setter
     def position(self,position):
         
-        #print(self,self._container)
         if isinstance(position,MBR):
             self._position = position
-            if self._container is not None and hasattr(self._container,'system'):
-                self._quarters = self._container.system.translate(position)
+            if self.site is not None and hasattr(self.site,'system'):
+                self._quarters = self.site.system.translate(position)
         else:
             self._quarters = Quarters(position)
-            if self._container is not None and hasattr(self._container,'system'):
-                self._position = self._container.system.translate(position)
+            if self.site is not None and hasattr(self.site,'system'):
+                self._position = self.site.system.translate(position)
+        self.site.sort()
 
     @property
     def quarters(self):
@@ -140,8 +140,10 @@ class StreamItem(object):
     @quarters.setter
     def quarters(self,quarters):
         self._quarters = quarters
-        if self._container is not None and hasattr(self._container,'system'):
-            self._position = self._container.system.translate(quarters)
+        if self.site is not None and hasattr(self.site,'system'):
+            self._position = self.site.system.translate(quarters)
+
+        self.site.sort()
 
 class Meter(StreamItem):
 
@@ -301,7 +303,9 @@ class Stream(object):
     def end(self):
         ends = []
         for item in self.items:
-            if hasattr(item,'duration'):
+            if item.quarters is None:
+                raise RuntimeError('Position Quarters Missing.')
+            elif hasattr(item,'duration'):
                 ends.append(item.quarters + item.duration)
             else:
                 ends.append(item.quarters)
@@ -314,18 +318,10 @@ class Stream(object):
         return len(self.items)
 
 
-    def insert(self,item,position=None):
+    def insert(self,position,item):
 
         p = self.priority
-
-        # insert at given pos or pos carried on item or stream end.
-        if position is None:
-            if hasattr(item,'position') and item.position is not None:
-                pos = item.position
-            else:
-                pos = self.end
-        else:
-            pos = position
+        pos = position
 
         # index criteria
         def after_pos(i):
@@ -339,15 +335,15 @@ class Stream(object):
         self.items.insert(insert_point-1,item)
 
         # mark container, container always points to the first.
-        if item._container is None:
-            item._container = self
+        if not hasattr(item,'site') or item.site is None:
+            item.site = self
 
         # set position attribute
         item.position = pos
 
     def append(self, *items):
         for item in items:
-            self.insert(item,self.end)
+            self.insert(self.end,item)
 
     def remove(self,item):
         self.items.remove(item)
@@ -374,14 +370,18 @@ class Stream(object):
 
     def index(self,criteria):
         for index,item in enumerate(self.items):
-            if criteria(item):
+            if callable(criteria) and criteria(item):
                 return index + 1    # index starts from 1
+            elif criteria is item:
+                return index + 1
         else:
             return None
 
     def rindex(self,criteria):
         for index in reversed(range(self.count)):
-            if criteria(self.items[index]):
+            if callable(criteria) and criteria(self.items[index]):
+                return index + 1
+            elif criteria is item:
                 return index + 1    # index starts from 1
         else:
             return None
@@ -389,13 +389,13 @@ class Stream(object):
     def sort(self):
         self.items.sort(key=lambda i:[i.position,self.priority[type(i)]])
 
-    def fr(self,position):
+    def since(self,position):
         if isinstance(position,MBR):
             return self.filter(lambda i:i.position >= position)
         else:
             return self.filter(lambda i:i.quarters >= position)
 
-    def ut(self,position):
+    def until(self,position):
         if isinstance(position,MBR):
             return self.filter(lambda i:i.position < position)
         else:
@@ -454,17 +454,27 @@ class System(Stream):
 
         super().__init__()
 
-        self.insert(key,MBR(1))
-        self.insert(meter,MBR(1))
+        if key is not None:
+            if key.position is None:
+                key._position = MBR(1)
+                key._quarters = Quarters(0)
+            if not hasattr(key,'site') or key.site is None:
+                key.site = self
+            self.items.append(key)
 
-        key.quarters   = Quarters(0)
-        meter.quarters = Quarters(0)
+        if meter is not None:
+            if meter.position is None:
+                meter._position = MBR(1)
+                meter._quarters = Quarters(0)
+            if not hasattr(meter,'site') or key.site is None:
+                meter.site = self
+            self.items.append(meter)
 
         self.system = self
 
     def translate(self,position):
 
-        reference = self.meters.ut(position).last
+        reference = self.meters.until(position).last
 
         bar_length  = reference.bar_length
         beat_length = reference.size.quarters
@@ -489,12 +499,16 @@ class System(Stream):
         quarters = self.translate(position)
         meters_followed = self.meters.filter(lambda m:m.position > position)
 
-        realign = self.fr(position)
+        replace = self.find(lambda m:m.position == position)
+        if replace is not None:
+            self.items.remove(replace)
+
+        realign = self.since(position)
 
         if meters_followed.count > 0:
-            realign = realign.ut(meters_followed.first.position)
+            realign = realign.until(meters_followed.first.position)
         
-        self.insert(meter,position)
+        self.insert(position,meter)
         
         if meters_followed.count > 0:
             next_meter = meters_followed.first
@@ -510,6 +524,12 @@ class System(Stream):
         for item in realign:
             item.quarters += -(item.quarters-quarters) % meter.bar_length
 
+    def filter(self,criteria):
+        s = System(None,None)
+        for item in filter(criteria,self):
+            s.items.append(item)
+        s.system = self
+        return s
 
 class Voice(Stream):
     
