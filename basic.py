@@ -622,7 +622,7 @@ class Quarters(Fraction):
         return str(self.numerator/self.denominator)
 
     def __repr__(self):
-        return str(self)
+        return str(self) + ' Quarters'
 
 #    def __hash__(self):
 #        return Fraction.__hash__(self)
