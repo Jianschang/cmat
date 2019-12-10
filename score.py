@@ -438,6 +438,21 @@ class Stream(object):
     def sort(self):
         self.items.sort(key=lambda i:[i.position,self.priority[type(i)]])
 
+    def _align(self,position):
+        if not hasattr(self,'system') or self.system is None:
+            return
+
+        meter = self.system.rfind(lambda i:i.type is Meter and i.position <= position)
+        if meter is None:
+            raise RuntimeError('No reference meter found.')
+            
+        mbr      = meter.mbr
+        quarters = meter.quarters
+        
+        for item in self:
+            shift = -(item.quarters - quarters) % meter.bar_length
+            item.quarters += shift
+
     def since(self,position):
         if isinstance(position,MBR):
             if hasattr(self,'system') and self.system is not None:
@@ -553,6 +568,29 @@ class System(Stream):
 
             return MBR(m,b,r)
 
+    def set(self,position,item):
+        if not isinstance(position,MBR):
+            position = self.system.translate(position)
+        position = MBR(position.measure)
+        quarters = self.system.translate(position)
+
+        self.insert(position,item)
+
+        if item.type is Meter:
+            following = self.meters.find(lambda m:m.position>position)
+            if following is not None:
+                shift = -(following.quarters - quarters)%item.bar_length
+                for m in self.since(following.position).meters: # meter first
+                    m.quarters += shift
+                for i in self.since(following.position).filter(lambda i:i.type != Meter):
+                    i.quarters += shift
+                realign = self.since(position).until(following.position)
+            else:
+                realign = self.since(position)
+
+            realign._align(position)
+
+'''
     def _set_meter(self,measure,meter):
         position = MBR(measure)
         quarters = self.translate(position)
@@ -594,20 +632,18 @@ class System(Stream):
         meter = previous_meters.last.copy
         self._set_meter(measure,meter)
         self.items.remove(meter)
+'''
 
     def insert(self,position,item):
-        if isinstance(item,Meter):
-            measure = position.measure
-            self._set_meter(measure,item)
-        else:
-            super().insert(position,item)
+        
+        existed = self.find(lambda i:i.type is item.type and i.position==position)
+        if existed is not None:
+            self.remove(existed)
+        
+        super().insert(position,item)
 
     def remove(self,item):
-        if isinstance(item,Meter):
-            measure = item.position.measure
-            self._del_meter(measure)
-        else:
-            super().remove(item)        
+        super().remove(item)        
 
     def filter(self,criteria):
         s = System(None,None)
