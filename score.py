@@ -590,7 +590,11 @@ class System(Stream):
 
             realign._align(position)
 
+<<<<<<< HEAD
     '''
+=======
+'''
+>>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
     def _set_meter(self,measure,meter):
         position = MBR(measure)
         quarters = self.translate(position)
@@ -632,7 +636,11 @@ class System(Stream):
         meter = previous_meters.last.copy
         self._set_meter(measure,meter)
         self.items.remove(meter)
+<<<<<<< HEAD
     '''
+=======
+'''
+>>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
 
     def insert(self,position,item):
         
@@ -643,6 +651,7 @@ class System(Stream):
         super().insert(position,item)
 
     def remove(self,item):
+<<<<<<< HEAD
         super().remove(item)
 
         position = item.position
@@ -659,6 +668,9 @@ class System(Stream):
                 realign = self.since(position)
 
             realign._align(position)
+=======
+        super().remove(item)        
+>>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
 
     def filter(self,criteria):
         s = System(None,None)
