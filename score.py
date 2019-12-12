@@ -108,34 +108,6 @@ class MBR(object):
         else:
             return False
 
-'''
-class StreamItem(object):
-
-    def __init__(self):
-
-        self.quarters = None    
-        self.site = None
-
-    @property
-    def position(self):
-        if self.site is not None:
-            if hasattr(self.site,'system') and self.site.system is not None:
-                return self.site.system.translate(self.quarters)
-
-        return self.quarters
-
-    @position.setter
-    def position(self,position):
-        if isinstance(position,MBR):
-            self.quarters = self.site.system.translate(position)
-        else:
-            self.quarters = position        
-
-    @property
-    def type(self):
-        return self.__class__
-'''
-
 class StreamItem(object):
 
     def __init__(self):
@@ -540,6 +512,16 @@ class System(Stream):
 
         self.system = self
 
+    def get_context(self,position):
+        from collections import namedtuple
+        Context = namedtuple('Context',['key','meter'])
+
+        key   = self.keys.rfind(lambda k:k.position <= position)
+        meter = self.meters.rfind(lambda m:m.position <= position)
+
+        return Context(key,meter)        
+        
+        
     def translate(self,position):
 
         if isinstance(position,MBR) and position == MBR(1):
@@ -590,58 +572,6 @@ class System(Stream):
 
             realign._align(position)
 
-<<<<<<< HEAD
-    '''
-=======
-'''
->>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
-    def _set_meter(self,measure,meter):
-        position = MBR(measure)
-        quarters = self.translate(position)
-        meters_followed = self.meters.filter(lambda m:m.mbr > position)
-
-        replace = self.meters.find(lambda m:m.mbr == position)
-        if replace is not None:
-            self.items.remove(replace)
-
-        realign = self.since(position)
-
-        if meters_followed.count > 0:
-            realign = realign.until(meters_followed.first.position)
-
-        #meter._mbr = position
-        #meter._quarters = quarters
-        super().insert(position,meter)
-        
-        if meters_followed.count > 0:
-            next_meter = meters_followed.first
-            shift = -(next_meter.quarters - quarters) %  meter.bar_length
-            items_followed = self.filter(lambda i:i.quarters >= next_meter.quarters \
-                                                and not isinstance(i,Meter))
-            
-            for meter in meters_followed:
-                meter.quarters += shift
-                meter.mbr = self.system.translate(meter.quarters)
-            for item in items_followed:
-                item.quarters  += shift
-                
-        for item in realign:
-            item.quarters += -(item.quarters-quarters) % meter.bar_length
-
-    def _del_meter(self,measure):
-        position = MBR(measure)
-        previous_meters = self.meters.until(position)
-        if previous_meters.count == 0:
-            return
-        meter = previous_meters.last.copy
-        self._set_meter(measure,meter)
-        self.items.remove(meter)
-<<<<<<< HEAD
-    '''
-=======
-'''
->>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
-
     def insert(self,position,item):
         
         existed = self.find(lambda i:i.type is item.type and i.position==position)
@@ -651,14 +581,15 @@ class System(Stream):
         super().insert(position,item)
 
     def remove(self,item):
-<<<<<<< HEAD
         super().remove(item)
 
         position = item.position
+        previous = self.meters.rfind(lambda m:m.position < position)
+
         if item.type is Meter:
             following = self.meters.find(lambda m:m.position>position)
             if following is not None:
-                shift = -(following.quarters - quarters)%item.bar_length
+                shift = -(following.quarters - previous.quarters)%previous.bar_length
                 for m in self.since(following.position).meters: # meter first
                     m.quarters += shift
                 for i in self.since(following.position).filter(lambda i:i.type != Meter):
@@ -668,15 +599,12 @@ class System(Stream):
                 realign = self.since(position)
 
             realign._align(position)
-=======
-        super().remove(item)        
->>>>>>> 7c2091e4a169ce6cf9e39a6be60d0571d8f41496
 
     def filter(self,criteria):
         s = System(None,None)
         for item in filter(criteria,self):
             s.items.append(item)
-        s.system = self
+        s.system = self.system
         return s
 
 class Voice(Stream):
