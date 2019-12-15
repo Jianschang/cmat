@@ -634,3 +634,23 @@ class Voice(Stream):
     def measure(self,measure):
         return self.since(MBR(measure)).until(MBR(measure+1))
 
+    def __str__(self):
+        position = self.first.position if self.count > 0 else MBR(1)
+        end = self.last.position if self.count > 0 else MBR(1)
+        c = self.system.get_context(position)
+        s = self.system.filter(lambda i:position<=i.position<=end)
+        lines = []
+        if s.keys.count == 0 or c.key.position < s.keys.first.position:
+            lines.append('-------  {:>28}'.format(str(c.key)))
+        if s.meters.count == 0 or c.meter.position < s.meters.first.position:
+            lines.append('-------  {:>28}'.format(str(c.meter)))
+
+        stream = Stream()
+        for i in s:
+            stream.insert(i.position,i)
+        for i in self:
+            stream.insert(i.position,i)
+
+        lines = '\n'.join([*lines,str(stream)])
+
+        return lines
