@@ -619,7 +619,11 @@ class Quarters(Fraction):
         return self
 
     def __str__(self):
-        return str(self.numerator/self.denominator)
+        s = str(self.numerator/self.denominator)
+        p = s.split('.')
+        if len(p) > 1 and len(p[1]) > 3: # smaller than 32nd
+            s = '{}/{}'.format(self.numerator,self.denominator)
+        return s
 
     def __repr__(self):
         return str(self) + ' Quarters'
