@@ -1,10 +1,9 @@
-from cmat.basic   import Quarters,C
+
+from cmat.basic   import Quarters, C
 from cmat.quality import major
 
-# comments
-
 class MBR(object):
-    
+
     @property
     def measure(self):
         return self._measure
@@ -19,101 +18,35 @@ class MBR(object):
 
     def __init__(self,measure,beat=1,remnant=Quarters(0)):
 
-        from numbers import Real
-
         self._measure = measure
         self._beat    = beat
-
-        if type(remnant) is Quarters:
-            self._remnant = remnant
-        elif hasattr(remnant,'quarters'):
-            self._remnant = remnant.quarters
-        elif isinstance(remnant,Real):
-            self._remnant = Quarters(remnant)
-        else:
-            raise TypeError('requires numerical remnant.')
+        self._remnant = Quarters(remnant)
 
     def __str__(self):
-        if self.remnant == 0:
-            remnant = '0'
-        else:
-            remnant = '{}/{}'.format(self.remnant.numerator,
-                                     self.remnant.denominator)
+
+        remnant = '0' if self.remnant==0 else str(self.remnant).strip('0')
         return '{}:{}:{}'.format(self.measure,self.beat,remnant)
 
     def __repr__(self):
         return str(self)
 
-    def __eq__(self,other):
-        if type(other) is MBR:
-            return self.measure == other.measure \
-               and self.beat    == other.beat    \
-               and self.remnant == other.remnant
-        else:
-            return False
+    def __eq__(s,o):
+        return [s.measure,s.beat,s.remnant]==[o.measure,o.beat,o.remnant]
 
-    def __gt__(self,other):
-        if self.measure > other.measure:
-            return True
-        elif self.measure < other.measure:
-            return False
-        elif self.beat > other.beat:
-            return True
-        elif self.beat < other.beat:
-            return False
-        elif self.remnant > other.remnant:
-            return True
-        else:
-            return False
+    def __gt__(s,o):
+        return [s.measure,s.beat,s.remnant]>[o.measure,o.beat,o.remnant]
 
-    def __ge__(self,other):
-        if self.measure > other.measure:
-            return True
-        elif self.measure < other.measure:
-            return False
-        elif self.beat > other.beat:
-            return True
-        elif self.beat < other.beat:
-            return False
-        elif self.remnant >= other.remnant:
-            return True
-        else:
-            return False
+    def __lt__(s,o):
+        return [s.measure,s.beat,s.remnant]<[o.measure,o.beat,o.remnant]
 
-    def __lt__(self,other):
-        if self.measure < other.measure:
-            return True
-        elif self.measure > other.measure:
-            return False
-        elif self.beat < other.beat:
-            return True
-        elif self.beat > other.beat:
-            return False
-        elif self.remnant < other.remnant:
-            return True
-        else:
-            return False
+    def __ge__(s,o):
+        return s > o or s == o
 
-    def __le__(self,other):
-        if self.measure < other.measure:
-            return True
-        elif self.measure > other.measure:
-            return False
-        elif self.beat < other.beat:
-            return True
-        elif self.beat > other.beat:
-            return False
-        elif self.remnant <= other.remnant:
-            return True
-        else:
-            return False
+    def __le__(s,o):
+        return s < o or s == o
+
 
 class StreamItem(object):
-
-    def __init__(self):
-        self._mbr      = None
-        self._quarters = None
-        self.site      = None
 
     @property
     def position(self):
@@ -122,20 +55,19 @@ class StreamItem(object):
                 return self._mbr
         return self._quarters
 
+    @position.setter
+    def position(self,position):
+        if isinstance(position, MBR):
+            self.mbr = position
+        else:
+            self.quarters = Quarters(position)
+
+        if self.site is not None:
+            self.site.sort()
+
     @property
     def quarters(self):
         return self._quarters
-
-    @property
-    def mbr(self):
-        return self._mbr
-
-    @position.setter
-    def position(self,position):
-        if isinstance(position,MBR):
-            self.mbr = position
-        else:
-            self.quarters = position
 
     @quarters.setter
     def quarters(self,quarters):
@@ -144,9 +76,12 @@ class StreamItem(object):
                 self._quarters = quarters
                 self._mbr = self.site.system.translate(quarters)
                 return
-
         self._quarters = quarters
         self._mbr = None
+
+    @property
+    def mbr(self):
+        return self._mbr
 
     @mbr.setter
     def mbr(self,mbr):
@@ -155,14 +90,19 @@ class StreamItem(object):
                 self._mbr = mbr
                 self._quarters = self.site.system.translate(mbr)
                 return
+        raise RuntimeError('Can not interpret MBR info without system track.')
 
-        raise RuntimeError('No system track found.')
-       
     @property
     def type(self):
         return self.__class__
 
+    def __init__(self):
+        self._mbr = None
+        self._quarters = None
+        self.site = None
 
+class MeasureSeprator(StreamItem):
+    pass
 
 class Meter(StreamItem):
 
@@ -177,24 +117,27 @@ class Meter(StreamItem):
     @property
     def bar_length(self):
         return self.size * self.count
-        
+
     @property
     def copy(self):
         return Meter(self.count,self.size)
 
+    @property
+    def text(self):
+        return str(self)
+
     def __init__(self,count,size):
 
         from cmat.basic import NoteType
-
         super().__init__()
 
         self._count = count
         if isinstance(size,int):
             self._size = NoteType(4/size)
         elif isinstance(size,NoteType):
-            self._size  = size
+            self._size = size
         else:
-            raise TypeError('beat size requires int or NoteType.')
+            raise TypeError('requires int or NoteType.')
 
     def __str__(self):
 
@@ -223,53 +166,54 @@ class Key(StreamItem):
     def copy(self):
         return Key(self.tonic,self.mode)
 
+    @property
+    def text(self):
+        return str(self)
+
     def __init__(self,tonic,mode=major):
-        
+
         super().__init__()
-        
+
         self._tonic = tonic
-        self._mode  = mode if mode is not None else major
+        self._mode  = mode
 
     def __str__(self):
-        return '{} {}'.format(str(self.tonic),str(self.mode))
+        return '{} {}'.format(self.tonic,self.mode)
 
     def __repr__(self):
         return str(self)
 
 class Note(StreamItem):
+
     @property
     def duration(self):
         return self._duration
 
     @duration.setter
     def duration(self,dur):
-
-        from cmat.basic import NoteType, Duration
-
-        if isinstance(dur,NoteType):
-            self._duration = Duration(dur)
-        else:
-            self._duration = dur
+        from cmat.basic import Duration
+        self._duration = dur if isinstance(dur,Duration) else Duration(dur)
 
     @property
     def copy(self):
         return Note(self.duration.copy,self.pitch)
 
-    def __init__(self,dur,pitch):
+    @property
+    def text(self):
+        return str(self.pitch)
 
+    def __init__(self,dur,pitch):
         from cmat.basic import Duration
 
         super().__init__()
-
         self.pitch = pitch
-        self._duration = dur if isinstance(dur,Duration) else Duration(dur)
+        self.duration = dur
 
     def __str__(self):
-        return ' '.join([str(s) for s in (self.duration,self.pitch)])
+        return '{} {}'.format(self.duration,self.pitch)
 
     def __repr__(self):
         return str(self)
-
 
 class Rest(StreamItem):
     @property
@@ -278,25 +222,22 @@ class Rest(StreamItem):
 
     @duration.setter
     def duration(self,dur):
-
-        from cmat.basic import NoteType
-
-        if isinstance(dur,NoteType):
-            self._duration = Duration(dur)
-        else:
-            self._duration = dur
+        from cmat.basic import Duration
+        self._duration = dur if isinstance(dur,Duration) else Duration(dur)
 
     @property
     def copy(self):
         return Rest(self.duration.copy)
 
-    def __init__(self,dur):
+    @property
+    def text(self):
+        return 'rest'
 
+    def __init__(self,dur):
         from cmat.basic import Duration
 
         super().__init__()
-
-        self._duration = dur if type(dur) is Duration else Duration(dur)
+        self._duration = dur
 
     def __str__(self):
         return '{} rest'.format(self.duration)
@@ -304,11 +245,9 @@ class Rest(StreamItem):
     def __repr__(self):
         return str(self)
 
-
-
 class Stream(object):
 
-    priority = {Key:0,Meter:1,Note:2,Rest:3} # Chord:4}
+    priority   = {MeasureSeprator:0,Key:1,Meter:2,Note:3,Rest:4}
 
     @property
     def first(self):
@@ -338,47 +277,46 @@ class Stream(object):
     def count(self):
         return len(self.items)
 
-
     def insert(self,position,item):
+        g = self.priority
+        p = position
 
-        p = self.priority
-        pos = position
+        ip = self.index(lambda i:[i.position,g[type(i)]]>[p,g[type(item)]])
+        ip = self.count+1 if ip is None else ip-1
 
-        # index criteria
-        def after_pos(i):
-            return i.position>pos or i.position==pos and p[type(i)]>p[type(item)]
+        self.items.insert(ip,item)
 
-        insert_point = self.index(after_pos)    # index returned starts from 1
-
-        if insert_point is None:
-            insert_point = self.count + 1
-
-        self.items.insert(insert_point-1,item)
-
-        # mark container, container always points to the first.
-        if not hasattr(item,'site') or item.site is None:
+        if item.site is None:
             item.site = self
 
-        # set position attribute
-        item.position = pos
+        item.position = p
 
-    def append(self, *items):
-        for item in items:
-            self.insert(self.end,item)
+    def append(self,item):
+        self.insert(self.end,item)
 
     def remove(self,item):
         self.items.remove(item)
 
     def filter(self,criteria):
         s = Stream()
-        for item in filter(criteria,self):
-            s.items.append(item)
+        for item in self.items:
+            if criteria(item):
+                s.items.append(item)
         return s
 
     def find(self,criteria):
         for item in self.items:
             if criteria(item):
                 return item
+        else:
+            return None
+
+    def index(self,criteria):
+        for index,item in enumerate(self.items):
+            if callable(criteria) and criteria(item):
+                return index + 1
+            elif criteria is item:
+                return index + 1
         else:
             return None
 
@@ -389,82 +327,76 @@ class Stream(object):
         else:
             return None
 
-    def index(self,criteria):
-        for index,item in enumerate(self.items):
-            if callable(criteria) and criteria(item):
-                return index + 1    # index starts from 1
-            elif criteria is item:
-                return index + 1
-        else:
-            return None
-
     def rindex(self,criteria):
         for index in reversed(range(self.count)):
             if callable(criteria) and criteria(self.items[index]):
                 return index + 1
             elif criteria is self.items[index]:
-                return index + 1    # index starts from 1
+                return index + 1
         else:
             return None
 
     def sort(self):
         self.items.sort(key=lambda i:[i.position,self.priority[type(i)]])
 
-    def _align(self,position):
-        if not hasattr(self,'system') or self.system is None:
-            return
+    def align(self,grid='m'):
+        if hasattr(self,'system') and self.system is not None:
+            meters = self.meters
+            for item in self:
+                refs=meters.filter(lambda m:m is not item \
+                                        and m.position<=item.position)
+                if refs.count == 0:
+                    raise RuntimeError('no meter was found.')
+                else:
+                    ref = refs.last
 
-        meter = self.system.rfind(lambda i:i.type is Meter and i.position <= position)
-        if meter is None:
-            raise RuntimeError('No reference meter found.')
-            
-        mbr      = meter.mbr
-        quarters = meter.quarters
-        
-        for item in self:
-            shift = -(item.quarters - quarters) % meter.bar_length
-            item.quarters += shift
+                if isinstance(grid,Quarters):
+                    pass
+                elif hasattr(grid,'quarters'):
+                    grid = grid.quarters
+                elif grid == 'm':
+                    grid = ref.bar_length
+                elif grid == 'b':
+                    grid = ref.size
+                else:
+                    raise RuntimeError('invalid grid size.')
+                shift = -(item.quarters-ref.quarters) % grid
+
+                item.quarters += shift
 
     def since(self,position):
         if isinstance(position,MBR):
-            if hasattr(self,'system') and self.system is not None:
-                return self.filter(lambda i:i.position >= position)
-            else:
-                raise RuntimeError('No system track found.')
+            return self.filter(lambda i:i.mbr >= position)
         else:
             return self.filter(lambda i:i.quarters >= position)
 
     def until(self,position):
         if isinstance(position,MBR):
-            if hasattr(self,'system') and self.system is not None:
-                return self.filter(lambda i:i.position < position)
-            else:
-                raise RuntimeError('No system track found.')
+            return self.filter(lambda i:i.mbr < position)
         else:
             return self.filter(lambda i:i.quarters < position)
 
-    def __init__(self, *items):
-
+    def __init__(self,*items):
         self.items = []
         for item in items:
-            self.insert(item)
+            if item.position is not None:
+                self.insert(item.position,item)
+            else:
+                self.append(item)
 
     def __iter__(self):
         return iter(self.items)
 
-    def __contains__(self,item):
+    def __contains__(self):
         return item in self.items
 
     def __getitem__(self,index):
-
-        # index starts from 1
         if isinstance(index,slice):
             s1 = index.start-1 if index.start>0 else index.start
-            s2 = index.stop-1 if index.stop>0 else index.stop
+            s2 = index.stop-1  if index.stop >0 else index.stop
             return Stream(*self.items[s1:s2:index.step])
-
         else:
-            if index>0:
+            if index > 0:
                 index -= 1
             return self.items[index]
 
@@ -472,185 +404,25 @@ class Stream(object):
         return len(self.items)
 
     def __str__(self):
+
+        if self.count == 0:
+            return ''
+
+        w1=max([len(str(i.position)) for i in self])
+        w2=max([len(str(i.duration)) for i in self if hasattr(i,'duration')])
+        w3=max([len(str(i.text)) for i in self])
+
         lines = []
-        for item in self.items:
-            lines.append('{:<12} {:>24}'.format(str(item.position),str(item)))
+        for item in self:
+            p = str(item.position)
+            d = str(item.duration) if hasattr(item,'duration') else ''
+            t = str(item.text)
+            lines.append('{:<{c1}}\t{:>{c2}}\t{:>{c3}}'.format(p,d,t,
+                                                   c1=w1,c2=w2,c3=w3))
+
         return '\n'.join(lines)
 
     def __repr__(self):
         return str(self)
 
-class System(Stream):
 
-    @property
-    def keys(self):
-        return self.filter(lambda i:isinstance(i,Key))
-
-    @property
-    def meters(self):
-        return self.filter(lambda i:isinstance(i,Meter))
-
-    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
-
-        super().__init__()
-
-        if key is not None:
-            if key.position is None:
-                key._quarters = Quarters(0)
-                key._mbr = MBR(1)
-            if not hasattr(key,'site') or key.site is None:
-                key.site = self
-            self.items.append(key)
-
-        if meter is not None:
-            if meter.position is None:
-                meter._quarters = Quarters(0)
-                meter._mbr = MBR(1)
-            if not hasattr(meter,'site') or meter.site is None:
-                meter.site = self
-            self.items.append(meter)
-
-        self.system = self
-
-    def get_context(self,position):
-        from collections import namedtuple
-        Context = namedtuple('Context',['key','meter'])
-
-        key   = self.keys.rfind(lambda k:k.position <= position)
-        meter = self.meters.rfind(lambda m:m.position <= position)
-
-        return Context(key,meter)        
-        
-        
-    def translate(self,position):
-
-        if isinstance(position,MBR) and position == MBR(1):
-            return Quarters(0)
-        elif isinstance(position,Quarters) and position == 0:
-            return MBR(1)
-
-        meters = self.meters.until(position)
-        reference = meters.last if meters.count > 0 else self.meters.first
-
-        bar_length  = reference.bar_length
-        beat_length = reference.size.quarters
-
-        if isinstance(position,MBR):
-            q =  reference.quarters
-            q += bar_length * (position.measure - reference.mbr.measure)
-            q += beat_length * (position.beat - 1)
-            q += position.remnant
-            return q
-        else:
-            position = Quarters(position)
-            distance = position - reference.quarters
-            m = distance // bar_length + reference.mbr.measure
-            b = distance %  bar_length // beat_length + 1
-            r = distance %  beat_length
-
-            return MBR(m,b,r)
-
-    def set(self,position,item):
-        if not isinstance(position,MBR):
-            position = self.system.translate(position)
-        position = MBR(position.measure)
-        quarters = self.system.translate(position)
-
-        self.insert(position,item)
-
-        if item.type is Meter:
-            following = self.meters.find(lambda m:m.position>position)
-            if following is not None:
-                shift = -(following.quarters - quarters)%item.bar_length
-                for m in self.since(following.position).meters: # meter first
-                    m.quarters += shift
-                for i in self.since(following.position).filter(lambda i:i.type != Meter):
-                    i.quarters += shift
-                realign = self.since(position).until(following.position)
-            else:
-                realign = self.since(position)
-
-            realign._align(position)
-
-    def insert(self,position,item):
-        
-        existed = self.find(lambda i:i.type is item.type and i.position==position)
-        if existed is not None:
-            self.remove(existed)
-        
-        super().insert(position,item)
-
-    def remove(self,item):
-        super().remove(item)
-
-        position = item.position
-        previous = self.meters.rfind(lambda m:m.position < position)
-
-        if item.type is Meter:
-            following = self.meters.find(lambda m:m.position>position)
-            if following is not None:
-                shift = -(following.quarters - previous.quarters)%previous.bar_length
-                for m in self.since(following.position).meters: # meter first
-                    m.quarters += shift
-                for i in self.since(following.position).filter(lambda i:i.type != Meter):
-                    i.quarters += shift
-                realign = self.since(position).until(following.position)
-            else:
-                realign = self.since(position)
-
-            realign._align(position)
-
-    def filter(self,criteria):
-        s = System(None,None)
-        for item in filter(criteria,self):
-            s.items.append(item)
-        s.system = self.system
-        return s
-
-class Voice(Stream):
-    
-    @property
-    def number(self):
-        return self._number
-
-    def __init__(self,sys=None,num=1):
-        
-        super().__init__()
-        self._number = num
-        self.system = System() if sys is None else sys
-
-    
-    def filter(self,criteria):
-        v = Voice(self.system,self.number)
-        for item in self.items:
-            if criteria(item):
-                v.items.append(item)
-        return v
-    
-    def insert(self,position,item):
-        item.vn = self.number
-        super().insert(position,item)
-
-    def measure(self,measure):
-        return self.since(MBR(measure)).until(MBR(measure+1))
-
-    def __str__(self):
-        position = self.first.position if self.count > 0 else MBR(1)
-        end = self.last.position if self.count > 0 else MBR(1)
-        c = self.system.get_context(position)
-        s = self.system.filter(lambda i:position<=i.position<=end)
-        lines = []
-        if s.keys.count == 0 or c.key.position < s.keys.first.position:
-            lines.append('-------  {:>28}'.format(str(c.key)))
-        if s.meters.count == 0 or c.meter.position < s.meters.first.position:
-            lines.append('-------  {:>28}'.format(str(c.meter)))
-
-        stream = Stream()
-        for i in s:
-            stream.insert(i.position,i)
-        for i in self:
-            stream.insert(i.position,i)
-
-        lines = '\n'.join([*lines,str(stream)])
-
-        return lines
