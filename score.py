@@ -304,6 +304,10 @@ class Stream(object):
         for item in self.items:
             if criteria(item):
                 s.items.append(item)
+
+        if hasattr(self,'system') and self.system is not None:
+            s.system = self.system
+
         return s
 
     def find(self,criteria):
@@ -443,6 +447,9 @@ class System(Stream):
         for item in self:
             if criteria(item):
                 s.items.append(item)
+
+        s.system = self.system
+
         return s
         
     def __init__(self,key=Key(C,major),meter=Meter(4,4)):
@@ -526,7 +533,7 @@ class System(Stream):
             else:
                 realign = self.since(position)
 
-            realign.align(position)
+            realign.align()
 
     def insert(self,position,item):
         
@@ -554,7 +561,7 @@ class System(Stream):
             else:
                 realign = self.since(position)
 
-            realign._align(position)
+            realign.align()
 
 
 class Voice(Stream):
