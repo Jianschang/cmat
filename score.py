@@ -62,9 +62,6 @@ class StreamItem(object):
         else:
             self.quarters = Quarters(position)
 
-        if self.site is not None:
-            self.site.sort()
-
     @property
     def quarters(self):
         return self._quarters
@@ -79,6 +76,9 @@ class StreamItem(object):
         self._quarters = quarters
         self._mbr = None
 
+        if self.site is not None:
+            self.site.sort()
+
     @property
     def mbr(self):
         return self._mbr
@@ -89,7 +89,9 @@ class StreamItem(object):
             if hasattr(self.site,'system') and self.site.system is not None:
                 self._mbr = mbr
                 self._quarters = self.site.system.translate(mbr)
+                self.site.sort()
                 return
+
         raise RuntimeError('Can not interpret MBR info without system track.')
 
     @property
@@ -341,7 +343,7 @@ class Stream(object):
 
     def align(self,grid='m'):
         if hasattr(self,'system') and self.system is not None:
-            meters = self.meters
+            meters = self.system.meters
             for item in self:
                 refs=meters.filter(lambda m:m is not item \
                                         and m.position<=item.position)
@@ -409,7 +411,8 @@ class Stream(object):
             return ''
 
         w1=max([len(str(i.position)) for i in self])
-        w2=max([len(str(i.duration)) for i in self if hasattr(i,'duration')])
+        w2=[len(str(i.duration)) for i in self if hasattr(i,'duration')]
+        w2=max(w2) if len(w2)>0 else 0
         w3=max([len(str(i.text)) for i in self])
 
         lines = []
@@ -425,4 +428,135 @@ class Stream(object):
     def __repr__(self):
         return str(self)
 
+
+class System(Stream):
+    @property
+    def keys(self):
+        return self.filter(lambda i:i.type is Key)
+    
+    @property
+    def meters(self):
+        return self.filter(lambda i:i.type is Meter)
+
+    def filter(self,criteria):
+        s = System(key=None,meter=None)
+        for item in self:
+            if criteria(item):
+                s.items.append(item)
+        return s
+        
+    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
+
+        super().__init__()
+
+        if key is not None:
+            if key.position is None:
+                key._quarters = Quarters(0)
+                key._mbr = MBR(1)
+            if not hasattr(key,'site') or key.site is None:
+                key.site = self
+            self.items.append(key)
+
+        if meter is not None:
+            if meter.position is None:
+                meter._quarters = Quarters(0)
+                meter._mbr = MBR(1)
+            if not hasattr(meter,'site') or meter.site is None:
+                meter.site = self
+            self.items.append(meter)
+
+        self.system = self
+
+
+    def get_context(self,position):
+        from collections import namedtuple
+        Context = namedtuple('Context',['key','meter'])
+
+        key   = self.keys.rfind(lambda k:k.position <= position)
+        meter = self.meters.rfind(lambda m:m.position <= position)
+
+        return Context(key,meter)        
+        
+        
+    def translate(self,position):
+
+        if isinstance(position,MBR) and position == MBR(1):
+            return Quarters(0)
+        elif isinstance(position,Quarters) and position == 0:
+            return MBR(1)
+
+        meters = self.meters.until(position)
+        reference = meters.last if meters.count > 0 else self.meters.first
+
+        bar_length  = reference.bar_length
+        beat_length = reference.size.quarters
+
+        if isinstance(position,MBR):
+            q =  reference.quarters
+            q += bar_length * (position.measure - reference.mbr.measure)
+            q += beat_length * (position.beat - 1)
+            q += position.remnant
+            return q
+        else:
+            position = Quarters(position)
+            distance = position - reference.quarters
+            m = distance // bar_length + reference.mbr.measure
+            b = distance %  bar_length // beat_length + 1
+            r = distance %  beat_length
+
+            return MBR(m,b,r)
+
+    def set(self,position,item):
+        if not isinstance(position,MBR):
+            position = self.system.translate(position)
+        position = MBR(position.measure)
+        quarters = self.system.translate(position)
+
+        self.insert(position,item)
+
+        if item.type is Meter:
+            following = self.meters.find(lambda m:m.position>position)
+            if following is not None:
+                shift = -(following.quarters - quarters)%item.bar_length
+                for m in self.since(following.position).meters: # meter first
+                    m.quarters += shift
+                for i in self.since(following.position).filter(lambda i:i.type != Meter):
+                    i.quarters += shift
+                realign = self.since(position).until(following.position)
+            else:
+                realign = self.since(position)
+
+            realign.align(position)
+
+    def insert(self,position,item):
+        
+        existed = self.find(lambda i:i.type is item.type and i.position==position)
+        if existed is not None:
+            self.remove(existed)
+        
+        super().insert(position,item)
+
+    def remove(self,item):
+        super().remove(item)
+
+        position = item.position
+        previous = self.meters.rfind(lambda m:m.position < position)
+
+        if item.type is Meter:
+            following = self.meters.find(lambda m:m.position>position)
+            if following is not None:
+                shift = -(following.quarters - previous.quarters)%previous.bar_length
+                for m in self.since(following.position).meters: # meter first
+                    m.quarters += shift
+                for i in self.since(following.position).filter(lambda i:i.type != Meter):
+                    i.quarters += shift
+                realign = self.since(position).until(following.position)
+            else:
+                realign = self.since(position)
+
+            realign._align(position)
+
+
+class Voice(Stream):
+    pass
 
