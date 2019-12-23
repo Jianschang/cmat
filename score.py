@@ -104,7 +104,9 @@ class StreamItem(object):
         self.site = None
 
 class MeasureSeprator(StreamItem):
-    pass
+    @property
+    def text(self):
+        return ''
 
 class Meter(StreamItem):
 
@@ -279,19 +281,31 @@ class Stream(object):
     def count(self):
         return len(self.items)
 
+    @property
+    def copy(self):
+        s = Stream()
+
+        if hasattr(self,'system'):
+            s.system = s if self.system is self else self.system.copy
+
+        for item in self.items:
+            s.insert(item.position,item.copy)
+
+        return s
+
     def insert(self,position,item):
         g = self.priority
         p = position
 
         ip = self.index(lambda i:[i.position,g[type(i)]]>[p,g[type(item)]])
-        ip = self.count+1 if ip is None else ip-1
-
-        self.items.insert(ip,item)
+        ip = self.count if ip is None else ip-1
 
         if item.site is None:
             item.site = self
 
         item.position = p
+
+        self.items.insert(ip,item)
 
     def append(self,item):
         self.insert(self.end,item)
@@ -343,15 +357,16 @@ class Stream(object):
             return None
 
     def sort(self):
-        self.items.sort(key=lambda i:[i.position,self.priority[type(i)]])
+        self.items.sort(key=lambda i:[i.quarters,self.priority[type(i)]])
 
     def align(self,grid='m'):
         if hasattr(self,'system') and self.system is not None:
             meters = self.system.meters
             for item in self:
                 refs=meters.filter(lambda m:m is not item \
-                                        and m.position<=item.position)
+                                        and m.quarters<=item.quarters)
                 if refs.count == 0:
+                    continue
                     raise RuntimeError('no meter was found.')
                 else:
                     ref = refs.last
@@ -359,16 +374,22 @@ class Stream(object):
                 if isinstance(grid,Quarters):
                     pass
                 elif hasattr(grid,'quarters'):
-                    grid = grid.quarters
+                    g = grid.quarters
                 elif grid == 'm':
-                    grid = ref.bar_length
+                    g = ref.bar_length
                 elif grid == 'b':
-                    grid = ref.size
+                    g = ref.size
                 else:
                     raise RuntimeError('invalid grid size.')
-                shift = -(item.quarters-ref.quarters) % grid
+                shift = -(item.quarters-ref.quarters) % g
 
                 item.quarters += shift
+
+    def shift(self,amount):
+        for m in self.meters:
+            m.quarters += amount
+        for i in self.filter(lambda i:i.type!=Meter):
+            i.quarters += amount
 
     def since(self,position):
         if isinstance(position,MBR):
@@ -442,6 +463,18 @@ class System(Stream):
     def meters(self):
         return self.filter(lambda i:i.type is Meter)
 
+    @property
+    def copy(self):
+        s = System(None,None)
+
+        if hasattr(self,'system'):
+            s.system = s if self.system is self else self.system.copy
+
+        for item in self.items:
+            s.insert(item.position,item.copy)
+
+        return s
+
     def filter(self,criteria):
         s = System(key=None,meter=None)
         for item in self:
@@ -479,8 +512,12 @@ class System(Stream):
         from collections import namedtuple
         Context = namedtuple('Context',['key','meter'])
 
-        key   = self.keys.rfind(lambda k:k.position <= position)
-        meter = self.meters.rfind(lambda m:m.position <= position)
+        if isinstance(position,MBR):
+            key   = self.keys.rfind(lambda k:k.mbr <= position)
+            meter = self.meters.rfind(lambda m:m.mbr <= position)
+        else:
+            key   = self.keys.rfind(lambda k:k.quarters <= position)
+            meter = self.meters.rfind(lambda m:m.quarters < position)
 
         return Context(key,meter)        
         
@@ -492,8 +529,9 @@ class System(Stream):
         elif isinstance(position,Quarters) and position == 0:
             return MBR(1)
 
-        meters = self.meters.until(position)
-        reference = meters.last if meters.count > 0 else self.meters.first
+        reference = self.get_context(position).meter
+        #meters = self.meters.until(position)
+        #reference = meters.last if meters.count > 0 else self.meters.first
 
         bar_length  = reference.bar_length
         beat_length = reference.size.quarters
@@ -525,15 +563,17 @@ class System(Stream):
             following = self.meters.find(lambda m:m.position>position)
             if following is not None:
                 shift = -(following.quarters - quarters)%item.bar_length
-                for m in self.since(following.position).meters: # meter first
-                    m.quarters += shift
-                for i in self.since(following.position).filter(lambda i:i.type != Meter):
-                    i.quarters += shift
+
                 realign = self.since(position).until(following.position)
+                self.since(following.position).shift(shift)
             else:
                 realign = self.since(position)
 
             realign.align()
+
+            # refreshing mbr info
+            for i in self.since(position):
+                i.quarters = i.quarters
 
     def insert(self,position,item):
         
@@ -549,21 +589,133 @@ class System(Stream):
         position = item.position
         previous = self.meters.rfind(lambda m:m.position < position)
 
-        if item.type is Meter:
+        if item.type is Meter and previous is not None:
             following = self.meters.find(lambda m:m.position>position)
             if following is not None:
-                shift = -(following.quarters - previous.quarters)%previous.bar_length
-                for m in self.since(following.position).meters: # meter first
-                    m.quarters += shift
-                for i in self.since(following.position).filter(lambda i:i.type != Meter):
-                    i.quarters += shift
+                shift = -(following.quarters-previous.quarters)%previous.bar_length
                 realign = self.since(position).until(following.position)
+                self.since(following.position).shift(shift)
             else:
                 realign = self.since(position)
 
             realign.align()
 
+            # refreshing mbr info
+            for i in self.since(position):
+                i.quarters = i.quarters
 
 class Voice(Stream):
-    pass
 
+    @property
+    def number(self):
+        return self._number
+
+    def filter(self,criteria):
+        v = Voice(self.system,self.number)
+        for item in self.items:
+            if criteria(item):
+                v.items.append(item)
+        return v
+
+    def insert(self,position,item):
+        item.vn = self.number
+
+        if isinstance(position,MBR):
+            quarters = self.system.translate(position)
+        else:
+            quarters = position
+
+        # head and tail position of inserting item.
+        head = tail = quarters
+        if hasattr(item,'duration'):
+            tail += item.duration.quarters
+
+        # remove if collided
+        collided = []
+        for i in self:
+
+            # begin and end of item
+            begin = end = i.quarters
+            if hasattr(i,'duration'):
+                end += i.duration.quarters
+
+            if head  <= begin <  tail and begin < end or \
+               head  <  end   <= tail or \
+               begin <= head  <  end  or \
+               begin <  tail  <= end  and head < tail:
+
+                # collided
+                collided.append(i)
+
+        for i in collided:
+            self.remove(i)
+
+        super().insert(position,item)
+
+    def set(self,position,item):
+        self.system.set(position,item)
+
+        if item.type is Meter:
+            for i in self.since(position):
+                i.quarters = i.quarters
+
+
+    def measure(self,measure):
+        return self.since(MBR(measure)).until(MBR(measure+1))
+
+    def empty(self):
+        for i in self:
+            i.site.remove(i)
+
+    def __init__(self,sys=None,num=1):
+        super().__init__()
+        self._number = num
+        self.system = System() if sys is None else sys
+
+    def __str__(self):
+
+        s = []
+
+        if self.count == 0:
+            m = self.system.last.mbr.measure
+        else:
+            m = max([self.last.mbr.measure,self.system.last.mbr.measure])
+
+        for n in range(1,m+1):
+            m = MBR(n)
+            q = self.system.translate(m)
+            ms = MeasureSeprator()
+            ms._mbr = m
+            ms._quarters = q
+
+            s.append(ms)
+
+        s += self
+        s += self.system
+
+        s.sort(key=lambda i:[i.quarters,self.priority[type(i)]])
+
+        w1=max([len(str(i.position)) for i in s])
+        w2=[len(str(i.duration)) for i in s if hasattr(i,'duration')]
+        w2=max(w2) if len(w2)>0 else 0
+        w3=max([len(str(i.text)) for i in s])
+
+        t = '{:<{c1}}\t{:>{c2}}\t{:>{c3}}'.format('-','-','-',c1=w1,c2=w2,c3=w3)
+        t = len(t.expandtabs())
+        sep = '-Measure: {} -'
+
+        lines = []
+
+        for i in s:
+            if i.type is MeasureSeprator:
+                head = sep.format(i.mbr.measure)
+                lines.append(head.ljust(t,'-'))
+                continue
+
+            p = str(i.position)
+            d = str(i.duration) if hasattr(i,'duration') else ''
+            x = str(i.text)
+            lines.append('{:<{c1}}\t{:>{c2}}\t{:>{c3}}'.format(p,d,x,
+                                                   c1=w1,c2=w2,c3=w3))
+
+        return '\n'.join(lines)
