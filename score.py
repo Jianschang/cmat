@@ -107,7 +107,7 @@ class StreamItem(object):
             if isinstance(self.position,MBR):
                 m = str(self.position.measure)
                 b = str(self.position.beat)
-                r = str(self.position.remnant)
+                r = '0  ' if self.position.remnant==0 else str(self.position.remnant)
             else:
                 m = str(self.position)
                 b = r = ''
@@ -780,30 +780,31 @@ class Voice(Stream):
 
         s = []
 
+        start = MBR(1)
+        stop  = self.end if self.end > self.system.end else self.system.end
+
         # setting start and stop boundary
         if hasattr(self,'_starting'):
             start = self._starting
             if not isinstance(start,MBR):
                 start = self.system.translate(start)
-
-        elif self.count > 0:
-            start = self.first.mbr
-        elif self.system.count > 0:
-            start = self.system.first.mbr
         else:
-            start = MBR(1)
+            if self.count > 0:
+                start = self.first.mbr
+            if self.system.count > 0:
+                if self.system.first.mbr < start:
+                    start = self.system.first.mbr
 
         if hasattr(self,'_stopping'):
             stop = self._stopping
             if not isinstance(stop,MBR):
                 stop = self.system.translate(stop)
-
-        elif self.count > 0:
-            stop = MBR(self.last.mbr.measure+1)
-        elif self.system.count > 0:
-            stop = MBR(self.system.last.mbr.measure+1)
         else:
-            stop = MBR(2)
+            if self.count > 0:
+                stop = MBR(self.last.mbr.measure+1)
+            if self.system.count > 0:
+                if stop < MBR(self.system.last.mbr.measure+1):
+                    stop = MBR(self.system.last.mbr.measure+1)
 
         # adding measure seprators
         for n in range(start.measure,stop.measure):
@@ -855,11 +856,14 @@ class Voice(Stream):
         w7 = max([layout[6] for layout in layouts])
 
         # construct format string
-        layout = '[:>{:d}]:[:>{:d}]:[:<{:d}]\t' \
-                 '[:>{:d}] [:>{:d}] [:<{:d}]\t' \
-                 '[:>{:d}]'.format(w1,w2,w3,w4,w5,w6,w7)
-        layout = layout.replace('[','{').replace(']','}')
-        total  = len(layout.format(0,0,0,0,0,0,0).expandtabs())
+        #layout = '[:>{:d}]:[:>{:d}]:[:<{:d}] \t' \
+        #         '[:>{:d}] [:>{:d}] [:<{:d}] \t' \
+        #         '[:>{:d}]'.format(w1,w2,w3,w4,w5,w6,w7)
+        #layout = layout.replace('[','{').replace(']','}')
+
+        layout = '{:>%d}:{:>%d}:{:<%d}\t{:>%d} {:>%d} {:<%d}\t' \
+                 '{:>%d}' % (w1,w2,w3,w4,w5,w6,w7)
+        total  = len(layout.format('','','','','','','').expandtabs())
 
 
         sep = '-[{}]-'
@@ -879,6 +883,113 @@ class Voice(Stream):
 
         return '\n'.join(lines)
 
+class Voices(object):
+
+    def add(self,voice):
+        if self.occupied(voice.number):
+            self.remove(self[voice.number])
+
+        self._voices.append(voice)
+
+    def remove(self,voice):
+        self._voices.remove(voice)
+
+    def occupied(self,number):
+        for v in self:
+            if v.number == number
+                return True
+        else:
+            return False
+
+    def __init__(self):
+        self._voices = []
+
+    def __getitem__(self,*args):
+
+        for arg in args:
+            if isinstance(arg,int):
+                for v in self:
+                    if v.number == arg:
+                        return v
+
+            elif isinstance(arg,slice):
+                start = slice.start-1 if slice.start > 0 else slice.start
+                stop  = slice.stop-1 if slice.stop > 0 else slice.stop
+                step  = slice.step
+
+                vs = Voices()
+                for v in self._voices[start:stop:step]:
+                    vs.add(v)
+                return vs 
+
+            elif isinstance(arg,tuple):
+                vs = Voices()
+                for n in arg:
+                    vs.add(self[n])
+                return vs                
+
+    def __iter__(self):
+        return iter(self._voices)
+
+    def __str__(self):
+        pass
+
+    def __repr__(self):
+        return str(self)
+
+
+class Part(object):
+
+    def add(self,voice):
+        voice.system = self.system
+        self.voices.add(voice)
+
+    def remove(self,voice):
+        self.voices.remove(voice)
+
+    def filter(self,criteria):
+
+        p = Part(self.system)
+
+        for v in self.voices:
+            p.add(v.filter(criteria))
+
+        return p
+
+    def since(self,position):
+        pos = time(position)
+
+        if isinstance(pos,MBR):
+            return self.filter(lambda i:i.position>=pos)
+        else:
+            return self.filter(lambda i:i.quarters>=pos)
+
+    def until(self,position):
+        pos = time(position)
+
+        if isinstance(pos,MBR):
+            return self.filter(lambda i:i.position<pos)
+        else:
+            return self.filter(lambda i:i.quarters<pos)
+
+    def __init__(self,sys=None):
+        self.system = System() if sys is None else sys
+        self.voices = Voices()
+
+    def __iter__(self):
+        pass
+
+    def __str__(self):
+        # setting start and stop boundary
+        # add measure seprator item
+        # set context key and meter if necessary
+        # merge
+        # calculate layout measurement
+        # construct text line
+
+    def __repr__(self):
+        pass
+    
 
 def time(p):
 
