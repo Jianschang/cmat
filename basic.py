@@ -622,7 +622,12 @@ class Quarters(Fraction):
         s = str(self.numerator/self.denominator)
         p = s.split('.')
         if len(p) > 1 and len(p[1]) > 3: # smaller than 32nd
-            s = '{}/{}'.format(self.numerator,self.denominator)
+            if abs(self.numerator) > abs(self.denominator):
+                s = "{}'{}/{}".format(self.numerator//self.denominator,
+                                      abs(self.numerator)%abs(self.denominator),
+                                      self.denominator)
+            else:
+                s = '{}/{}'.format(self.numerator,self.denominator)
         return s
 
     def __repr__(self):
