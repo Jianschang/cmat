@@ -56,7 +56,7 @@ class StreamItem(object):
         return self._quarters
 
     @position.setter
-    def position(self,position):
+    def position(self,*position):
         position = time(position)
         if isinstance(position, MBR):
             self.mbr = position
@@ -86,7 +86,7 @@ class StreamItem(object):
         return self._mbr
 
     @mbr.setter
-    def mbr(self,mbr):
+    def mbr(self,*mbr):
         mbr = time(mbr)
         if self.site is not None:
             if hasattr(self.site,'system') and self.site.system is not None:
@@ -101,63 +101,61 @@ class StreamItem(object):
     def type(self):
         return self.__class__
 
+    def formatted(self,layout,arg_names):
 
-    def formatted(self,layout):
-        if hasattr(self,'position'):
-            if isinstance(self.position,MBR):
-                m = str(self.position.measure)
-                b = str(self.position.beat)
-                r = '0  ' if self.position.remnant==0 else str(self.position.remnant)
+        parts = []
+        for arg_path in arg_names:
+            arg  = self
+            args = arg_path.split('.')
+            while len(args)>0:
+                try:
+                    arg = getattr(arg,args[0])
+                except AttributeError:
+                    arg  = ''
+                    args = [args[0]]
+
+                arg_name = args.pop(0)
+
+            if arg_name == 'measure':
+                parts.append(str(arg))
+            elif arg_name == 'beat':
+                parts.append(str(arg))
+            elif arg_name == 'dots':
+                arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
+                parts.append(arg)
             else:
-                m = str(self.position)
-                b = r = ''
-        else:
-            m = b = r = ''
+                parts.append(str(arg) if arg is not None else '')
 
-        if hasattr(self,'duration'):
-            d = {0:'',1:'dotted',
-                 2:'double dotted',
-                 3:'triple dotted'}[self.duration.dots]
-            a = str(self.duration.base)
-            if self.duration.tuplet is None:
-                t = ''
+        return layout.format(*parts)
+
+
+
+    def layout(self,arg_names):
+
+        layouts = []
+        for arg_path in arg_names:
+            arg  = self
+            args = arg_path.split('.')
+            while len(args)>0:
+                try:
+                    arg = getattr(arg,args[0])
+                except AttributeError:
+                    arg  = ''
+                    args = [args[0]]
+
+                arg_name = args.pop(0)
+
+            if arg_name == 'measure':
+                layouts.append(len(str(arg)))
+            elif arg_name == 'beat':
+                layouts.append(len(str(arg)))
+            elif arg_name == 'dots':
+                arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
+                layouts.append(len(arg))
             else:
-                t = str(self.duration.tuplet)
-        else:
-            d = a = t = ''
+                layouts.append(len(str(arg)) if arg is not None else 0)
 
-        data = self.text if hasattr(self,'text') else ''
-
-        return layout.format(m,b,r,d,a,t,data)
-
-    @property
-    def layout(self):
-        if hasattr(self,'position'):
-            if isinstance(self.position,MBR):
-                m = len(str(self.position.measure))
-                b = len(str(self.position.beat))
-                r = len(str(self.position.remnant))
-            else:
-                m = len(str(self.position))
-                b = r = 0
-        else:
-            m = b = r = 0
-
-        if hasattr(self,'duration'):
-            d = {0:0,1:len('dotted'),
-                 2:len('double dotted'),
-                 3:len('triple dotted')}[self.duration.dots]
-            a = len(str(self.duration.base))
-            if self.duration.tuplet is None:
-                t = 0
-            else:
-                t = len(str(self.duration.tuplet))
-        else:
-            d = a = t = 0
-
-        data = len(self.text) if hasattr(self,'text') else 0
-
-        return (m,b,r,d,a,t,data)
+        return layouts
 
     def __init__(self):
         self._mbr = None
@@ -310,6 +308,7 @@ class Rest(StreamItem):
     def __repr__(self):
         return str(self)
 
+'''
 class Stream(object):
 
     priority   = {MeasureSeprator:0,Key:1,Meter:2,Note:3,Rest:4}
@@ -354,9 +353,12 @@ class Stream(object):
 
         return s
 
-    def insert(self,position,item):
+    def insert(self,*args):
         g = self.priority
-        p = time(position)
+        item = args[-1]
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+        p = time(args[:-1])
 
         if isinstance(p,MBR):
             p = self.system.translate(p)
@@ -455,7 +457,7 @@ class Stream(object):
         for i in self.filter(lambda i:i.type!=Meter):
             i.quarters += amount
 
-    def since(self,position):
+    def since(self,*position):
         position = time(position)
         if isinstance(position,MBR):
             position = self.system.translate(position)
@@ -463,7 +465,7 @@ class Stream(object):
         s._starting = position
         return s
 
-    def until(self,position):
+    def until(self,*position):
         position = time(position)
         if isinstance(position,MBR):
             position = self.system.translate(position)
@@ -471,6 +473,14 @@ class Stream(object):
         s = self.filter(lambda i:i.quarters < position)
         s._stopping = position
         return s
+
+    def at(self,*position):
+        position = time(position)
+        if isinstance(position,MBR):
+            position = self.system.translate(position)
+
+        s = self.filter(lambda i:i.quarters==position)
+        return s.items
 
     def __init__(self,*items):
         self.items = []
@@ -521,6 +531,161 @@ class Stream(object):
 
     def __repr__(self):
         return str(self)
+'''
+
+
+class Stream(object):
+
+    priority = {MeasureSeprator:0,Key:1,Meter:2,Note:3,Rest:4}
+
+    @property
+    def count(self):
+        return len(self.items)
+
+    @property
+    def end(self):
+        loc = [i.quarters+i.duration if hasattr(i,'duration') else i.quarters \
+                    for i in self]
+        end = max(loc) if len(loc) > 0 else Quarters(0)
+
+        return self.system.translate(end) if hasattr(self,'system') \
+                                          and self.system is not None else end
+
+    @property
+    def copy(self):
+        copy = Stream()
+
+        if hasattr(self,'system'):
+            copy.system = copy if self.system is self else self.system.copy
+
+        for item in self:
+            copy.insert(item.position,item.copy)
+
+    def filter(self,criteria):
+        s = Stream()
+
+        if hasattr(self,'system') and self.system is not None:
+            s.system = self.system
+
+        for item in self:
+            if criteria(item):
+                s.items.append(item)
+
+        return s
+
+    def since(self,*position):
+        position = time(position)
+        if isinstance(position,MBR): position = self.system.translate(position)
+
+        s = self.filter(lambda i: i.quarters >= position)
+        return s
+
+    def until(self,*position):
+        position = time(position)
+        if isinstance(position,MBR): position = self.system.translate(position)
+
+        s = self.filter(lambda i: i.quarters < position)
+        return s
+
+
+    def at(self,*position):
+        position = time(position)
+        if isinstance(position,MBR): position = self.system.translate(position)
+
+        s = self.filter(lambda i: i.quarters == position)
+        return list(s.items)
+
+    def insert(self,*args):
+        p = self.priority
+        item = args[-1]
+
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+
+        pos = time(args[:-1])
+        grd = p[type(item)]
+
+        ip = 0
+        while ip < self.count \
+              and (self.items[ip].position,p[type(self.items[ip])]) <= (pos,grd):
+            if ip >= self.count:
+                break
+
+            ip += 1
+
+        if item.site is None:
+            item.site = self
+
+        item.position = pos
+
+        self.items.insert(ip,item)
+
+    def append(self,item):
+        self.insert(self.end,item)
+
+    def remove(self,item):
+        self.items.remove(item)
+
+
+
+    def sort(self):
+        self.items.sort(key=lambda i:(i.quarters,self.priority[type(i)]))
+
+    def __init__(self,*items):
+        self.items = []
+
+        for item in items:
+            if item.position is None:
+                self.append(item)
+            else:
+                self.insert(item.position,item)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __contains__(self,item):
+        return item in self.items
+
+    def __getitem__(self,index):
+        if isinstance(index,slice):
+            start = index.start-1 if index.start>0 else index.start
+            stop  = index.stop -1 if index.stop >0 else index.stop
+            return Stream(*self.items[start:stop])
+        else:
+            if index > 0: index -= 1
+            return self.items[index]
+
+    def __len__(self):
+        return len(self.items)
+
+    def __str__(self):
+
+        if self.count == 0: return ''
+
+        layouts = [i.layout(['position',
+                             'duration.dots',
+                             'duration.base',
+                             'duration.tuplet',
+                             'text']) for i in self]
+        columns = [max(w) for w in zip(*layouts)]
+
+        layout = '{:<%d}\t {:>%d} {:>%d} {:<%d}\t {:>%d}' % (*columns,)
+
+        lines = []
+        for i in self:
+            lines.append(i.formatted(layout,('position',
+                                             'duration.dots',
+                                             'duration.base',
+                                             'duration.tuplet',
+                                             'text')))
+
+        return '\n'.join(lines)
+
+    def __repr__(self):
+        return str(self)
+
+
+
 
 
 class System(Stream):
@@ -577,7 +742,7 @@ class System(Stream):
         self.system = self
 
 
-    def get_context(self,position):
+    def get_context(self,*position):
         from collections import namedtuple
         Context = namedtuple('Context',['key','meter'])
 
@@ -591,7 +756,7 @@ class System(Stream):
         return Context(key,meter)        
         
         
-    def translate(self,position):
+    def translate(self,*position):
 
         position = time(position)
 
@@ -623,9 +788,13 @@ class System(Stream):
 
             return MBR(m,b,r)
 
-    def set(self,position,item):
+    def set(self,*args):
 
-        position = time(position)
+        item = args[-1]
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+
+        position = time(args[:-1])
 
         if not isinstance(position,MBR):
             position = self.system.translate(position)
@@ -651,9 +820,13 @@ class System(Stream):
             for i in self.since(position):
                 i.quarters = i.quarters
 
-    def insert(self,position,item):
+    def insert(self,*args):
 
-        position = time(position)
+        item = args[-1]
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+
+        position = time(args[:-1])
 
         existed = self.find(lambda i:i.type is item.type and i.position==position)
         if existed is not None:
@@ -682,11 +855,19 @@ class System(Stream):
             for i in self.since(position):
                 i.quarters = i.quarters
 
+
 class Voice(Stream):
 
     @property
     def number(self):
         return self._number
+
+    @number.setter
+    def number(self,num):
+        self._number = num
+
+        for item in self:
+            item.vn = num
 
     @property
     def copy(self):
@@ -710,9 +891,13 @@ class Voice(Stream):
 
         return v
 
-    def insert(self,position,item):
+    def insert(self,*args):
 
-        position = time(position)
+        item = args[-1]
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+
+        position = time(args[:-1])
 
         if isinstance(position,MBR):
             quarters = self.system.translate(position)
@@ -747,9 +932,12 @@ class Voice(Stream):
         item.vn = self.number
         super().insert(quarters,item)
 
-    def set(self,position,item):
+    def set(self,*args):
+        item = args[-1]
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
 
-        position = time(position)
+        position = time(args[:-1])
 
         self.system.set(position,item)
 
@@ -773,7 +961,7 @@ class Voice(Stream):
 
     def __init__(self,sys=None,num=1):
         super().__init__()
-        self._number = num
+        self.number = num
         self.system = System() if sys is None else sys
 
     def __str__(self):
@@ -845,7 +1033,14 @@ class Voice(Stream):
 
         # calculate column widths
 
-        layouts = [i.layout for i in s if type(i) not in [MeasureSeprator]]
+        layouts = [i.layout(['position.measure',
+                             'position.beat',
+                             'position.remnant',
+                             'duration.dots',
+                             'duration.base',
+                             'duration.tuplet',
+                             'text']) \
+                   for i in s if type(i) not in [MeasureSeprator]]
 
         w1 = max([layout[0] for layout in layouts])
         w2 = max([layout[1] for layout in layouts])
@@ -854,12 +1049,6 @@ class Voice(Stream):
         w5 = max([layout[4] for layout in layouts])
         w6 = max([layout[5] for layout in layouts])
         w7 = max([layout[6] for layout in layouts])
-
-        # construct format string
-        #layout = '[:>{:d}]:[:>{:d}]:[:<{:d}] \t' \
-        #         '[:>{:d}] [:>{:d}] [:<{:d}] \t' \
-        #         '[:>{:d}]'.format(w1,w2,w3,w4,w5,w6,w7)
-        #layout = layout.replace('[','{').replace(']','}')
 
         layout = '{:>%d}:{:>%d}:{:<%d}\t{:>%d} {:>%d} {:<%d}\t' \
                  '{:>%d}' % (w1,w2,w3,w4,w5,w6,w7)
@@ -879,27 +1068,26 @@ class Voice(Stream):
                 lines.append('{:>{w}}'.format(str(i),w=total))
                 continue
 
-            lines.append(i.formatted(layout))
+            lines.append(i.formatted(layout,
+                              ['position.measure',
+                               'position.beat',
+                               'position.remnant',
+                               'duration.dots',
+                               'duration.base',
+                               'duration.tuplet',
+                               'text']))
 
         return '\n'.join(lines)
+
+
 
 class Voices(object):
 
     def add(self,voice):
-        if self.occupied(voice.number):
-            self.remove(self[voice.number])
-
         self._voices.append(voice)
 
     def remove(self,voice):
         self._voices.remove(voice)
-
-    def occupied(self,number):
-        for v in self:
-            if v.number == number
-                return True
-        else:
-            return False
 
     def __init__(self):
         self._voices = []
@@ -911,6 +1099,8 @@ class Voices(object):
                 for v in self:
                     if v.number == arg:
                         return v
+                else:
+                    raise IndexError('index out of range.')
 
             elif isinstance(arg,slice):
                 start = slice.start-1 if slice.start > 0 else slice.start
@@ -931,12 +1121,14 @@ class Voices(object):
     def __iter__(self):
         return iter(self._voices)
 
+
+    '''
     def __str__(self):
         pass
 
     def __repr__(self):
         return str(self)
-
+    '''
 
 class Part(object):
 
@@ -956,7 +1148,7 @@ class Part(object):
 
         return p
 
-    def since(self,position):
+    def since(self,*position):
         pos = time(position)
 
         if isinstance(pos,MBR):
@@ -964,7 +1156,7 @@ class Part(object):
         else:
             return self.filter(lambda i:i.quarters>=pos)
 
-    def until(self,position):
+    def until(self,*position):
         pos = time(position)
 
         if isinstance(pos,MBR):
@@ -975,6 +1167,7 @@ class Part(object):
     def __init__(self,sys=None):
         self.system = System() if sys is None else sys
         self.voices = Voices()
+        self.voices.add(Voice(sys=self.system,num=1))
 
     def __iter__(self):
         pass
@@ -986,6 +1179,7 @@ class Part(object):
         # merge
         # calculate layout measurement
         # construct text line
+        pass
 
     def __repr__(self):
         pass
@@ -993,20 +1187,25 @@ class Part(object):
 
 def time(p):
 
-    if type(p) is Quarters:
-        return p
-    elif type(p) is MBR:
-        return p
-    elif type(p) is int:
-        return MBR(p)
-    elif type(p) is float:
-        return Quarters(p)
-    elif type(p) is tuple:
-        if len(p) < 3:
+    if type(p) is tuple and 0 < len(p) < 4:
+        if len(p) == 1:
+            p = p[0]
+            if type(p) is Quarters:
+                return p
+            elif type(p) is MBR:
+                return p
+            elif type(p) is int:
+                return MBR(p)
+            elif type(p) is float:
+                return Quarters(p)
+            else:
+                raise RuntimeError('incorrect time format.')
+
+        elif len(p) == 2:
             return MBR(p[0],p[1],0)
         else:
-            return MBR(p[0],p[1],p[2])
+            return MBR(p[1],p[1],p[2])
     else:
-        raise TypeError('unrecognized time form.')
+        raise RuntimeError('missing or incorrect time format.')
 
 
