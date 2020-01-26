@@ -533,7 +533,6 @@ class Stream(object):
         return str(self)
 '''
 
-
 class Stream(object):
 
     priority = {MeasureSeprator:0,Key:1,Meter:2,Note:3,Rest:4}
@@ -606,9 +605,8 @@ class Stream(object):
         grd = p[type(item)]
 
         ip = 0
-        while ip < self.count \
-              and (self.items[ip].position,p[type(self.items[ip])]) <= (pos,grd):
-            if ip >= self.count:
+        while ip < self.count:
+            if (self.items[ip].position,p[type(self.items[ip])]) >= (pos,grd):
                 break
 
             ip += 1
@@ -626,6 +624,33 @@ class Stream(object):
     def remove(self,item):
         self.items.remove(item)
 
+    def shift(self,amount):
+        meters = self.filter(lambda i:i.type is Meter)
+        for m in meters:
+            m.quarters += amount
+
+        others = self.filter(lambda i:i.type is not Meter)
+        for i in others:
+            i.quarters += amount
+
+    def align(self,sys,grid):
+
+        for item in self:
+
+            meter = sys.get_context(item.position).meter
+
+            if isinstance(grid,Quarters):
+                pass
+            elif isinstance(grid,NoteType):
+                grid = grid.quarters
+            elif grid == 'beat':
+                grid = meter.size.quarters
+
+            elif grid == 'measure':
+                grid = meter.bar_length
+
+            amount = -(item.quarters - meter.quarters) % grid
+            self.quarters += amount
 
 
     def sort(self):
@@ -660,24 +685,17 @@ class Stream(object):
 
     def __str__(self):
 
-        if self.count == 0: return ''
+        if self.count == 0:
+            return ''
 
-        layouts = [i.layout(['position',
-                             'duration.dots',
-                             'duration.base',
-                             'duration.tuplet',
-                             'text']) for i in self]
+        layouts = [i.layout(['position','duration','text']) for i in self]
         columns = [max(w) for w in zip(*layouts)]
 
-        layout = '{:<%d}\t {:>%d} {:>%d} {:<%d}\t {:>%d}' % (*columns,)
+        layout = '{:>%d}\t {:>%d}\t {:<%d}' % (*columns,)
 
         lines = []
         for i in self:
-            lines.append(i.formatted(layout,('position',
-                                             'duration.dots',
-                                             'duration.base',
-                                             'duration.tuplet',
-                                             'text')))
+            lines.append(i.formatted(layout,('position','duration','text')))
 
         return '\n'.join(lines)
 
@@ -685,9 +703,7 @@ class Stream(object):
         return str(self)
 
 
-
-
-
+'''
 class System(Stream):
     @property
     def keys(self):
@@ -854,6 +870,148 @@ class System(Stream):
             # refreshing mbr info
             for i in self.since(position):
                 i.quarters = i.quarters
+'''
+
+class System(Stream):
+
+    @property
+    def keys(self):
+        return self.filter(lambda i:i.type is Key)
+
+    @property
+    def meters(self):
+        return self.filter(lambda i:i.type is Meter)
+
+    @property
+    def copy(self):
+        s = System(None,None)
+
+        if hasattr(self,'system'):
+            s.system = s if self.system is self else self.system.copy
+
+        for item in self:
+            s.insert(item.position,item.copy)
+
+    def insert(self,*args):
+
+        # extract item
+        if len(args) > 0:
+            item = args[-1]
+            if not isinstance(item,StreamItem):
+                raise RuntimeError('missing or invalid item.')
+        else:
+            raise RuntimeError('missing position and item.')
+
+        # extract position
+        position = time(args[:-1])
+
+        # check position format
+        if isinstance(position,MBR):
+            quarters = self.system.translate(position)
+        else:
+            quarters = position
+            position = self.system.translate(position)
+
+        # remove occupied same type item
+        overwrite=self.filter(lambda i:i.type==item.type and i.positioni==position)
+        if len(overwrite) > 0:
+            for item in overwrite:
+                self.items.remove(item)
+
+        # insert
+        super().insert(quarters,item)
+
+        # rearrange item positions for meter change
+        if item.type is Meter:
+            next = self.meters.since(quarters)
+            if len(next) > 0:
+                next   = next[-1]
+                amount = -(next.quarters - quarters) % item.bar_length
+                # push afterward items after next meter accordingly
+                self.since(next.quarters).shift(amount)
+
+                realignment = self.since(quarters).until(next.quarters)
+
+            else:
+                realignment = self.since(quarters)
+
+            # align to measure boundary for items between inserted and next meter
+            realignment.align(sys=realignment.system,grid='measure')
+
+    def remove(self,item):
+
+        quarters = item.quarters
+
+        self.items.remove(item)
+        ref = self.get_context(quarters).meter
+
+        if item.type is Meter:
+            next = self.meters.since(quarters)
+            if len(next) > 0:
+                next   = next[-1]
+                amount = -(next.quarters - ref.quarters) % ref.bar_length
+                self.since(next.quarters).shift(amount)
+
+                realignment = self.since(quarters).until(next.quarters)
+            else:
+                realignment = self.since(quarters)
+
+        realignment.align(sys=realignment.system,grid='measure')
+
+    def filter(self,criteria):
+        s = System(None,None)
+        for item in self:
+            if criteria(item):
+                s.items.append(item)
+
+        s.system = self.system
+
+    def get_context(self,*position):
+        from collections import namedtuple
+        Context = namedtuple('Context',['key','meter'])
+
+        position = time(position)
+
+        if isinstance(position,MBR):
+            position = self.translate(position)
+
+        key = self.keys.filter(lambda k:k.quarters <= position)
+        key = key[-1] if len(key)>0 else None
+        meter = self.meters.filter(lambda m:m.quarters <= position)
+        meter = meter[-1] if len(meter)>0 else None
+
+        return Context(key,meter)
+
+
+    def translate(self,*position):
+        position = time(position)
+
+        if isinstance(position,MBR):
+            if position == MBR(1):
+                return Quarters(0)
+            else:
+                ref = self.meters.filter(lambda m:m.position<=position)[-1]
+                bl  = ref.bar_length
+                bt  = ref.size.quarters
+                q   = ref.quarters
+                q  += bl * (position.measure-ref.mbr.measure)
+                q  += bt * (position.beat - 1)
+                q  += position.remnant
+                return q
+
+        elif isinstance(position,Quarters):
+            if position == 0:
+                return MBR(1)
+            else:
+                ref = self.meters.filter(lambda m:m.quarters<=position)[-1]
+                bl  = ref.bar_length
+                bt  = ref.size.quarters
+                d   = position - ref.quarters
+                m   = d // bl + ref.mbr.measure
+                b   = d  % bl // bt + 1
+                r   = d  % bt
+                return MBR(m,b,r)
+
 
 
 class Voice(Stream):
