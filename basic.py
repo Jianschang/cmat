@@ -633,11 +633,19 @@ class Quarters(Fraction):
     def __repr__(self):
         return str(self) + ' Quarters'
 
-#    def __hash__(self):
-#        return Fraction.__hash__(self)
+    @property
+    def size_i(self):
+        s  = str(self)
+        sp = "'" if "'" in s else '.'
+        p  = s.split(sp)
+        return len(p[0])
 
-#    def __eq__(a,b):
-#        return Fraction.__eq__(a,Fraction.from_float(b)) 
+    @property
+    def size_d(self):
+        s  = str(self)
+        sp = "'" if "'" in s else '.'
+        p  = s.split(sp)
+        return len(p[1])
 
     def __add__(a,b):
         f = Fraction.__add__(a,b)
