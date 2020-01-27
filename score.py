@@ -602,11 +602,17 @@ class Stream(object):
             raise RuntimeError('missing or invalid item.')
 
         pos = time(args[:-1])
+        if isinstance(pos,MBR):
+            if hasattr(self,'system') and self.system is not None:
+                pos = self.translate(pos)
+            else:
+                raise RuntimeError('no metric information.')
+
         grd = p[type(item)]
 
         ip = 0
         while ip < self.count:
-            if (self.items[ip].position,p[type(self.items[ip])]) >= (pos,grd):
+            if (self.items[ip].quarters,p[type(self.items[ip])]) >= (pos,grd):
                 break
 
             ip += 1
@@ -614,7 +620,7 @@ class Stream(object):
         if item.site is None:
             item.site = self
 
-        item.position = pos
+        item.quarters = pos
 
         self.items.insert(ip,item)
 
@@ -634,6 +640,7 @@ class Stream(object):
             i.quarters += amount
 
     def align(self,sys,grid):
+        from cmat.basic import NoteType
 
         for item in self:
 
@@ -650,7 +657,7 @@ class Stream(object):
                 grid = meter.bar_length
 
             amount = -(item.quarters - meter.quarters) % grid
-            self.quarters += amount
+            item.quarters += amount
 
 
     def sort(self):
@@ -892,6 +899,8 @@ class System(Stream):
         for item in self:
             s.insert(item.position,item.copy)
 
+        return s
+
     def insert(self,*args):
 
         # extract item
@@ -913,7 +922,7 @@ class System(Stream):
             position = self.system.translate(position)
 
         # remove occupied same type item
-        overwrite=self.filter(lambda i:i.type==item.type and i.positioni==position)
+        overwrite=self.filter(lambda i:i.type==item.type and i.position==position)
         if len(overwrite) > 0:
             for item in overwrite:
                 self.items.remove(item)
@@ -923,9 +932,9 @@ class System(Stream):
 
         # rearrange item positions for meter change
         if item.type is Meter:
-            next = self.meters.since(quarters)
+            next = self.meters.filter(lambda m:m.quarters>quarters)
             if len(next) > 0:
-                next   = next[-1]
+                next   = next[1]
                 amount = -(next.quarters - quarters) % item.bar_length
                 # push afterward items after next meter accordingly
                 self.since(next.quarters).shift(amount)
@@ -946,9 +955,9 @@ class System(Stream):
         ref = self.get_context(quarters).meter
 
         if item.type is Meter:
-            next = self.meters.since(quarters)
+            next = self.meters.filter(lambda m:m.quarters>quarters)
             if len(next) > 0:
-                next   = next[-1]
+                next   = next[1]
                 amount = -(next.quarters - ref.quarters) % ref.bar_length
                 self.since(next.quarters).shift(amount)
 
@@ -956,7 +965,7 @@ class System(Stream):
             else:
                 realignment = self.since(quarters)
 
-        realignment.align(sys=realignment.system,grid='measure')
+            realignment.align(sys=realignment.system,grid='measure')
 
     def filter(self,criteria):
         s = System(None,None)
@@ -965,6 +974,8 @@ class System(Stream):
                 s.items.append(item)
 
         s.system = self.system
+
+        return s
 
     def get_context(self,*position):
         from collections import namedtuple
@@ -990,7 +1001,7 @@ class System(Stream):
             if position == MBR(1):
                 return Quarters(0)
             else:
-                ref = self.meters.filter(lambda m:m.position<=position)[-1]
+                ref = self.meters.filter(lambda m:m.position<position)[-1]
                 bl  = ref.bar_length
                 bt  = ref.size.quarters
                 q   = ref.quarters
@@ -1003,7 +1014,7 @@ class System(Stream):
             if position == 0:
                 return MBR(1)
             else:
-                ref = self.meters.filter(lambda m:m.quarters<=position)[-1]
+                ref = self.meters.filter(lambda m:m.quarters<position)[-1]
                 bl  = ref.bar_length
                 bt  = ref.size.quarters
                 d   = position - ref.quarters
@@ -1012,6 +1023,27 @@ class System(Stream):
                 r   = d  % bt
                 return MBR(m,b,r)
 
+    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
+
+        super().__init__()
+
+        if key is not None:
+            if key.position is None:
+                key._quarters = Quarters(0)
+                key._mbr = MBR(1)
+            if not hasattr(key,'site') or key.site is None:
+                key.site = self
+            self.items.append(key)
+
+        if meter is not None:
+            if meter.position is None:
+                meter._quarters = Quarters(0)
+                meter._mbr = MBR(1)
+            if not hasattr(meter,'site') or meter.site is None:
+                meter.site = self
+            self.items.append(meter)
+
+        self.system = self
 
 
 class Voice(Stream):
