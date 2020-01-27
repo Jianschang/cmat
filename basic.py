@@ -619,33 +619,26 @@ class Quarters(Fraction):
         return self
 
     def __str__(self):
-        s = str(self.numerator/self.denominator)
-        p = s.split('.')
-        if len(p) > 1 and len(p[1]) > 3: # smaller than 32nd
-            if abs(self.numerator) > abs(self.denominator):
-                s = "{}'{}/{}".format(self.numerator//self.denominator,
-                                      abs(self.numerator)%abs(self.denominator),
-                                      self.denominator)
-            else:
-                s = '{}/{}'.format(self.numerator,self.denominator)
-        return s
+        if len(str(self.decimal)) > 5:
+            return "'".join([str(self.integral),str(self.fractional)])
+        else:
+            return str(self.numerator/self.denominator)
 
     def __repr__(self):
         return str(self) + ' Quarters'
 
     @property
-    def size_i(self):
-        s  = str(self)
-        sp = "'" if "'" in s else '.'
-        p  = s.split(sp)
-        return len(p[0])
+    def integral(self):
+        return self.numerator//self.denominator
 
     @property
-    def size_d(self):
-        s  = str(self)
-        sp = "'" if "'" in s else '.'
-        p  = s.split(sp)
-        return len(p[1])
+    def decimal(self):
+        return (self.numerator%self.denominator)/self.denominator
+
+    @property
+    def fractional(self):
+        from fractions import Fraction
+        return Fraction(self.numerator%self.denominator,self.denominator)
 
     def __add__(a,b):
         f = Fraction.__add__(a,b)
