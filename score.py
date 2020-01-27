@@ -124,7 +124,8 @@ class StreamItem(object):
                 arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
                 parts.append(arg)
             elif arg_name == 'decimal':
-                parts.append(str(arg).split('.')[1])
+                s = str(arg)
+                parts.append(s[s.index('.'):])
             else:
                 parts.append(str(arg) if arg is not None else '')
 
@@ -155,7 +156,7 @@ class StreamItem(object):
                 arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
                 layouts.append(len(arg))
             elif arg_name == 'decimal':
-                layouts.append(len(str(arg))-2)
+                layouts.append(len(str(arg))-1)
             else:
                 layouts.append(len(str(arg)) if arg is not None else 0)
 
@@ -311,6 +312,30 @@ class Rest(StreamItem):
 
     def __repr__(self):
         return str(self)
+
+
+class Measurement(object):
+    '''
+    Interface for accessing music stream by measure.
+    '''
+
+    def __init__(self,stream):
+        self._stream = stream
+
+    def __getitem__(self,*args):
+
+        arg = args[0]
+        s = self._stream
+
+        if type(arg) is int:
+            return s.filter(lambda e:e.mbr.measure == arg)
+        elif type(arg) is slice:
+            return s.filter(lambda e:arg.start<=e.mbr.measure<arg.stop)
+        elif type(arg) is tuple:
+            return s.filter(lambda e:e.mbr.measure in arg)
+        else:
+            raise IndexError('invalid index number.')
+
 
 class Stream(object):
 
@@ -478,7 +503,7 @@ class Stream(object):
         for i in self:
 
             # choice between the decimal or fraction representation of position
-            if len(str(i.quarters.decimal))-2 < len(str(i.quarters.fractional)):
+            if len(str(i.quarters.decimal))-1 < len(str(i.quarters.fractional)):
                 dec = 'quarters.decimal'
             else:
                 dec = 'quarters.fractional'
@@ -498,7 +523,7 @@ class Stream(object):
         for i in self:
 
             # choice between the decimal or fraction representation of position
-            if len(str(i.quarters.decimal))-2 <= len(str(i.quarters.fractional)):
+            if len(str(i.quarters.decimal))-1 <= len(str(i.quarters.fractional)):
                 dec = 'quarters.decimal'
             else:
                 dec = 'quarters.fractional'
@@ -657,7 +682,7 @@ class System(Stream):
                 r   = d  % bt
                 return MBR(m,b,r)
 
-    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
+    def __init__(self,key=Key(C,major),meter=Meter(4,4),*items):
 
         super().__init__()
 
@@ -679,6 +704,9 @@ class System(Stream):
 
         self.system = self
 
+        for item in items:
+            self.insert(item.position,item)
+
     def __str__(self):
 
         if self.count == 0:
@@ -687,7 +715,7 @@ class System(Stream):
         layouts = []
         for i in self:
 
-            if len(str(i.mbr.remnant.decimal))-2<len(str(i.mbr.remnant.fractional)):
+            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
                 dec = 'mbr.remnant.decimal'
             else:
                 dec = 'mbr.remnant.fractional'
@@ -707,7 +735,7 @@ class System(Stream):
         for i in self:
 
             # choice between the decimal or fraction representation of position
-            if len(str(i.mbr.remnant.decimal))-2<len(str(i.mbr.remnant.fractional)):
+            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
                 dec = 'mbr.remnant.decimal'
             else:
                 dec = 'mbr.remnant.fractional'
@@ -720,6 +748,7 @@ class System(Stream):
         return '\n'.join(lines)
 
 
+'''
 class Voice(Stream):
 
     @property
@@ -940,6 +969,143 @@ class Voice(Stream):
                                'duration.base',
                                'duration.tuplet',
                                'text']))
+
+        return '\n'.join(lines)
+'''
+
+class Voice(Stream):
+
+    @property
+    def number(self):
+        return self._number
+
+    @number.setter
+    def number(self,num):
+        self._number = num
+
+        for item in self:
+            item.vn = num
+
+    @property
+    def measure(self):
+        return self._measure
+
+    @property
+    def measures(self):
+        return self._measure
+
+    @property
+    def copy(self):
+        s = Voice(sys=self.system.copy,num=self.number)
+        for item in self:
+            s.insert(item.position,item.copy)
+        return s
+
+    def filter(self,criteria):
+        s = Voice(sys=self.system,num=self.number)
+        for item in self:
+            if criteria(item):
+                s.items.append(item)
+        return s
+
+    def insert(self, *args):
+        item = args[-1]
+
+        if not isinstance(item,StreamItem):
+            raise RuntimeError('missing or invalid item.')
+
+        pos = time(args[:-1])
+
+        if isinstance(pos,MBR):
+            quarters = self.system.translate(pos)
+        else:
+            quarters = pos
+
+        # head and tail of insertion
+        head = tail = quarters
+        if hasattr(item,'duration'):
+            tail += item.duration.quarters
+
+        # detect possible collision
+        collided = []
+        for i in self:
+
+            # begin and end of item
+            begin = end = i.quarters
+            if hasattr(i,'duration'):
+                end += i.duration.quarters
+
+
+            if head  <= begin <  tail and begin < end or \
+               head  <  end   <= tail or \
+               begin <= head  <  end  or \
+               begin <  tail  <= end  and head < tail:
+
+                collided.append(i)
+
+        # remove collided
+        for i in collided:
+            self.remove(i)
+
+        item.vn = self.number
+
+        super().insert(quarters,item)
+
+
+    def empty(self):
+        for item in [i for i in self]:
+            self.remove(item)
+
+    def __init__(self,sys=None,num=1):
+
+        super().__init__()
+
+        self._measure = Measurement(self)
+
+        self.number = num
+        self.system = System() if sys is None else sys
+
+
+    def __str__(self):
+
+        if self.count == 0:
+            return ''
+
+        layouts = []
+        for i in self:
+            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
+                dec = 'mbr.remnant.decimal'
+            else:
+                dec = 'mbr.remnant.fractional'
+
+            layouts.append(i.layout(['mbr.measure',
+                                     'mbr.beat',
+                                      dec,
+                                     'duration.dots',
+                                     'duration.base',
+                                     'duration.tuplet',
+                                     'text']))
+
+        # set column widths
+        columns = [max(w) for w in zip(*layouts)]
+
+        # build layout pattern
+        layout ='{:>%d}:{:>%d}:{:<%d}\t {:>%d} {:>%d} {:<%d}\t {:>%d}' % (*columns,)
+
+        lines = []
+        for i in self:
+            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
+                dec = 'mbr.remnant.decimal'
+            else:
+                dec = 'mbr.remnant.fractional'
+
+            lines.append(i.formatted(layout,['mbr.measure',
+                                             'mbr.beat',
+                                              dec,
+                                             'duration.dots',
+                                             'duration.base',
+                                             'duration.tuplet',
+                                             'text']))
 
         return '\n'.join(lines)
 
