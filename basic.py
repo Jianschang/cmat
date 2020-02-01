@@ -619,7 +619,7 @@ class Quarters(Fraction):
         return self
 
     def __str__(self):
-        if len(str(self.decimal)) > 5:
+        if len(str(self.decimal)) - len(str(self.fractional)) >= 2:
             return "'".join([str(self.integral),str(self.fractional)])
         else:
             return str(self.numerator/self.denominator)
