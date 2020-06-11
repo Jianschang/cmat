@@ -7,14 +7,14 @@ from cmat.basic import E,En,Es,Ex,Eb,Ebb,F,Fn,Fs,Fx,Fb,Fbb
 from cmat.basic import G,Gn,Gs,Gx,Gb,Gbb,A,An,As,Ax,Ab,Abb
 from cmat.basic import B,Bn,Bs,Bx,Bb,Bbb
 
-from cmat.basic import natural, sharp, flat
+from cmat.basic    import natural, sharp, flat
 
 from cmat.interval import unison, second, third, fourth, fifth
 from cmat.interval import sixth, seventh, octave, semitone, wholetone
 
 from cmat.quality  import double,triple
 from cmat.quality  import major, minor, perfect, augmented, diminished
-#from cmat.quality  import harmonic, melodic, chromatic
+#from cmat.quality import harmonic, melodic, chromatic
 
 from cmat.duration import whole,half,quarter,eighth,sixteenth,dotted
 from cmat.tuplet   import triplet
@@ -25,8 +25,9 @@ from cmat import tuplet
 from cmat import duration
 from cmat import key
 
-from cmat.score  import MBR,Key,Meter,Stream,System #,Voice
+from cmat.score  import MBR,Key,Meter,Note,Rest,Stream,System,Voice,Part
 from cmat.syntax import rest
+
 _all__ = [
            # sub modules
            'pitch','interval','duration','tuplet','triad','key',

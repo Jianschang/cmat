@@ -1,544 +1,638 @@
+from numbers        import Real
+from collections    import namedtuple
+from collections.abc import Iterable
+from fractions      import Fraction
+from itertools      import chain
+from re             import match
 
-from cmat.basic   import Quarters, C
-from cmat.quality import major
+from cmat.basic     import Quarters,NoteType,Duration,C
+from cmat.duration  import whole
+from cmat.quality   import major
+
+__all__ = ['MBR','Key','Meter','Note','Rest','Chord',
+           'Metrical','Stream','Voice','Part','Score']
+
+MAXIMUM = 256
+
+
+def _extract(self,*args,**kw):
+
+    args = list(args)
+    types = [int,float,Fraction,Quarters,MBR,type(None)]
+
+    pos = []
+    while len(args)>0 and type(args[0]) in types:
+        if len(pos) == 3: break
+        pos.append(args.pop(0))
+
+    if len(pos) == 0:
+        pos = None
+    elif type(pos[0]) in [MBR,Quarters,type(None)]:
+        pos = pos[0]
+    elif type(pos[0]) is int:
+        pos = MBR(*pos)
+    else:
+        pos = Quarters(*pos)
+
+    args.insert(0,pos)
+
+    return args,kw
+
+def adapt_to_quarters(func):
+
+    def wrapper(self,*args,**kw):
+        args,kw = _extract(self,*args,**kw)
+
+        if isinstance(args[0],MBR):
+            args[0] = self.system.translate(args[0])
+
+        return func(self,*args,**kw)
+
+    return wrapper
+
+def adapt_to_mbr(func):
+
+    def wrapper(self,*args,**kw):
+        args,kw = _extract(self,*args,**kw)
+
+        if isinstance(args[0],Quarters):
+            args[0] = self.system.translate(args[0])
+
+        return func(self,*args,**kw)
+
+    return wrapper
+
+def adapt_to_position(func):
+
+    def wrapper(self,*args,**kw):
+        args,kw = _extract(self,*args,**kw)
+        return func(self,*args,**kw)
+
+    return wrapper
 
 class MBR(object):
+    @property
+    def measure(self): return self._m
 
     @property
-    def measure(self):
-        return self._measure
+    def beat(self): return self._b
 
     @property
-    def beat(self):
-        return self._beat
+    def remnant(self): return self._r
 
     @property
-    def remnant(self):
-        return self._remnant
+    def tuple(self):
+        return (self.measure,self.beat,self.remnant)
 
-    def __init__(self,measure,beat=1,remnant=Quarters(0)):
+    @property
+    def size(self):
+        return [len(str(n)) for n in self.tuple]
 
-        self._measure = measure
-        self._beat    = beat
-        self._remnant = Quarters(remnant)
+    def format(self,size):
+        m,b,r = self.tuple
+        ms,bs,rs = size
+        return '{:>{}}:{:>{}}:{:<{}}'.format(m,ms,b,bs,r,rs)
+
+    def __init__(self,measure,beat=1,remnant=Fraction(0)):
+        self._m = measure
+        self._b = beat
+        self._r = remnant
 
     def __str__(self):
-
-        remnant = '0' if self.remnant==0 else str(self.remnant).strip('0')
-        return '{}:{}:{}'.format(self.measure,self.beat,remnant)
+        return '{}:{}:{}'.format(self.measure,self.beat,self.remnant)
 
     def __repr__(self):
         return str(self)
 
-    def __eq__(s,o):
-        return [s.measure,s.beat,s.remnant]==[o.measure,o.beat,o.remnant]
+    def __hash__(self):
+        return hash(str(self))
 
-    def __gt__(s,o):
-        return [s.measure,s.beat,s.remnant]>[o.measure,o.beat,o.remnant]
+    def __eq__(self,other):
+        if other is None:
+            return False
+        else:
+            return self.tuple == other.tuple
 
-    def __lt__(s,o):
-        return [s.measure,s.beat,s.remnant]<[o.measure,o.beat,o.remnant]
+    def __gt__(self,other):
+        return self.tuple > other.tuple
 
-    def __ge__(s,o):
-        return s > o or s == o
+    def __lt__(self,other):
+        return self.tuple < other.tuple
 
-    def __le__(s,o):
-        return s < o or s == o
+    def __ge__(self,other):
+        return self > other or self == other
 
+    def __le__(self,other):
+        return self < other or self == other
 
 class StreamItem(object):
 
     @property
-    def position(self):
-        if self.site is not None:
-            if hasattr(self.site,'system') and self.site.system is not None:
-                return self._mbr
-        return self._quarters
+    def priority(self):
 
-    @position.setter
-    def position(self,*position):
-        position = time(position)
-        if isinstance(position, MBR):
-            self.mbr = position
-        else:
-            self.quarters = Quarters(position)
+        priorities = {Key:0,Meter:1,Note:2,Chord:3,Rest:4,StreamItem:MAXIMUM}
+        try:
+            p = priorities[self.type]
+        except KeyError:
+            p = MAXIMUM
 
-    @property
-    def quarters(self):
-        return self._quarters
-
-    @quarters.setter
-    def quarters(self,quarters):
-        quarters = Quarters(quarters)
-        if self.site is not None:
-            if hasattr(self.site,'system') and self.site.system is not None:
-                self._quarters = quarters
-                self._mbr = self.site.system.translate(quarters)
-                return
-        self._quarters = quarters
-        self._mbr = None
-
-        if self.site is not None:
-            self.site.sort()
-
-    @property
-    def mbr(self):
-        return self._mbr
-
-    @mbr.setter
-    def mbr(self,*mbr):
-        mbr = time(mbr)
-        if self.site is not None:
-            if hasattr(self.site,'system') and self.site.system is not None:
-                self._mbr = mbr
-                self._quarters = self.site.system.translate(mbr)
-                self.site.sort()
-                return
-
-        raise RuntimeError('Can not interpret MBR info without system track.')
+        return p
 
     @property
     def type(self):
         return self.__class__
 
-    def formatted(self,layout,arg_names):
+    @property
+    def position(self):
+        if self.site is None or isinstance(self.site,Metrical) is False:
+            return self.quarters
+        else:
+            return self.mbr
 
-        parts = []
-        for arg_path in arg_names:
-            arg  = self
-            args = arg_path.split('.')
-            while len(args)>0:
-                try:
-                    arg = getattr(arg,args[0])
-                except AttributeError:
-                    arg  = ''
-                    args = [args[0]]
+    @position.setter
+    @adapt_to_position
+    def position(self,pos):
+        if isinstance(pos,MBR):
+            self.mbr = pos
+        else:
+            self.quarters = pos
 
-                arg_name = args.pop(0)
+    @property
+    def quarters(self):
+        return self._q
 
-            if arg_name == 'measure':
-                parts.append(str(arg))
-            elif arg_name == 'beat':
-                parts.append(str(arg))
-            elif arg_name == 'dots':
-                arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
-                parts.append(arg)
-            elif arg_name == 'decimal':
-                s = str(arg)
-                parts.append(s[s.index('.'):])
+    @quarters.setter
+    def quarters(self,quar):
+        self._q = quar
+        if self.site is not None and isinstance(self.site,Metrical) is True:
+            self.synchronize()
+
+    @property
+    def mbr(self):
+        return self._m
+
+    @mbr.setter
+    def mbr(self,mbr):
+        self._m = mbr
+        self.synchronize(reversed=True)
+
+    def synchronize(self,reversed=False):
+        if self.site is not None and isinstance(self.site,Metrical) is True:
+            if reversed:
+                self._q = self.site.system.translate(self.mbr)
             else:
-                parts.append(str(arg) if arg is not None else '')
+                self._m = self.site.system.translate(self.quarters)
 
-        return layout.format(*parts)
+    def dump(self,attr_paths):
+        texts = []
+        for path in attr_paths:
+            for opt in path.split('/'):
+                node  = self
+                nodes = opt.split('.')
 
+                while len(nodes) > 0:
+                    if nodes[0] == 'self':
+                        nodes = ['self']
+                    elif nodes[0] == 'rest' and self.type is Rest:
+                        nodes = ['rest']
+                    else:
+                        try:
+                            node = getattr(node,nodes[0])
+                        except AttributeError:
+                            node  = None
+                            nodes = [nodes[0]]
+                    name = nodes.pop(0)
 
+                if node is not None: break
 
-    def layout(self,arg_names):
-
-        layouts = []
-        for arg_path in arg_names:
-            arg  = self
-            args = arg_path.split('.')
-            while len(args)>0:
-                try:
-                    arg = getattr(arg,args[0])
-                except AttributeError:
-                    arg  = ''
-                    args = [args[0]]
-
-                arg_name = args.pop(0)
-
-            if arg_name == 'measure':
-                layouts.append(len(str(arg)))
-            elif arg_name == 'beat':
-                layouts.append(len(str(arg)))
-            elif arg_name == 'dots':
-                arg = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[arg]
-                layouts.append(len(arg))
-            elif arg_name == 'decimal':
-                layouts.append(len(str(arg))-1)
+            if name == 'dots':
+                t = {0:'',1:'dotted',2:'double dotted',3:'triple dotted'}[node]
+            elif name == 'rest':
+                t = 'rest'
             else:
-                layouts.append(len(str(arg)) if arg is not None else 0)
+                t = '' if node is None else str(node)
 
-        return layouts
+            texts.append(t)
+
+        return texts
 
     def __init__(self):
-        self._mbr = None
-        self._quarters = None
+
+        self._q = None
+        self._m = None
+
         self.site = None
 
-class MeasureSeprator(StreamItem):
-    @property
-    def text(self):
-        return ''
-
-class Meter(StreamItem):
-
-    @property
-    def count(self):
-        return self._count
-
-    @property
-    def size(self):
-        return self._size
-
-    @property
-    def bar_length(self):
-        return self.size * self.count
-
-    @property
-    def copy(self):
-        return Meter(self.count,self.size)
-
-    @property
-    def text(self):
-        return str(self)
-
-    def __init__(self,count,size):
-
-        from cmat.basic import NoteType
-        super().__init__()
-
-        self._count = count
-        if isinstance(size,int):
-            self._size = NoteType(4/size)
-        elif isinstance(size,NoteType):
-            self._size = size
-        else:
-            raise TypeError('requires int or NoteType.')
-
     def __str__(self):
-
-        from cmat.duration import whole
-
-        count = str(self.count)
-        size  = str(int(whole/self.size))
-        return '{}/{}'.format(count,size)
+        return 'StreamItem Abstract Class'
 
     def __repr__(self):
         return str(self)
 
-class Key(StreamItem):
-
-    from cmat.quality import major
-
-    @property
-    def tonic(self):
-        return self._tonic
-
-    @property
-    def mode(self):
-        return self._mode
-
-    @property
-    def copy(self):
-        return Key(self.tonic,self.mode)
-
-    @property
-    def text(self):
-        return str(self)
-
-    def __init__(self,tonic,mode=major):
-
-        super().__init__()
-
-        self._tonic = tonic
-        self._mode  = mode
-
-    def __str__(self):
-        return '{} {}'.format(self.tonic,self.mode)
-
-    def __repr__(self):
-        return str(self)
 
 class Note(StreamItem):
 
     @property
+    def priority(self):
+        v = self.voice if hasattr(self,'voice') else MAXIMUM
+        p = self.pitch
+        return (self.quarters,super().priority,v,-p.number,-p.MIDI)
+
+    @property
     def duration(self):
-        return self._duration
+        return self._d
 
     @duration.setter
     def duration(self,dur):
-        from cmat.basic import Duration
-        self._duration = dur if isinstance(dur,Duration) else Duration(dur)
+        self._d = dur if isinstance(dur,Duration) else Duration(dur)
 
     @property
     def copy(self):
         return Note(self.duration.copy,self.pitch)
 
-    @property
-    def text(self):
-        return str(self.pitch)
-
     def __init__(self,dur,pitch):
-        from cmat.basic import Duration
 
-        super().__init__()
-        self.pitch = pitch
+        super(Note,self).__init__()
+
         self.duration = dur
+        self.pitch = pitch
 
     def __str__(self):
         return '{} {}'.format(self.duration,self.pitch)
 
-    def __repr__(self):
-        return str(self)
+
+
+class Chord(StreamItem):
+    pass
 
 class Rest(StreamItem):
+
+    @property
+    def priority(self):
+        v = self.voice if hasattr(self,'voice') else MAXIMUM
+        return (self.quarters,super().priority,v)
+
     @property
     def duration(self):
-        return self._duration
+        return self._d
 
     @duration.setter
     def duration(self,dur):
-        from cmat.basic import Duration
-        self._duration = dur if isinstance(dur,Duration) else Duration(dur)
+        self._d = dur if isinstance(dur,Duration) else Duration(dur)
 
     @property
     def copy(self):
         return Rest(self.duration.copy)
 
-    @property
-    def text(self):
-        return 'rest'
-
     def __init__(self,dur):
-        from cmat.basic import Duration
 
-        super().__init__()
-        self._duration = dur
+        super(Rest,self).__init__()
+
+        self.duration = dur
 
     def __str__(self):
         return '{} rest'.format(self.duration)
 
-    def __repr__(self):
-        return str(self)
-
-
-class Measurement(object):
-    '''
-    Interface for accessing music stream by measure.
-    '''
-
-    def __init__(self,stream):
-        self._stream = stream
-
-    def __getitem__(self,*args):
-
-        arg = args[0]
-        s = self._stream
-
-        if type(arg) is int:
-            return s.filter(lambda e:e.mbr.measure == arg)
-        elif type(arg) is slice:
-            return s.filter(lambda e:arg.start<=e.mbr.measure<arg.stop)
-        elif type(arg) is tuple:
-            return s.filter(lambda e:e.mbr.measure in arg)
-        else:
-            raise IndexError('invalid index number.')
-
-
-class Stream(object):
-
-    priority = {MeasureSeprator:0,Key:1,Meter:2,Note:3,Rest:4}
+class Key(StreamItem):
 
     @property
-    def count(self):
-        return len(self.items)
+    def priority(self):
+        return (self.quarters,super().priority)
 
     @property
-    def end(self):
-        loc = [i.quarters+i.duration if hasattr(i,'duration') else i.quarters \
-                    for i in self]
-        end = max(loc) if len(loc) > 0 else Quarters(0)
+    def tonic(self):
+        return self._t
 
-        return self.system.translate(end) if hasattr(self,'system') \
-                                          and self.system is not None else end
+    @property
+    def mode(self):
+        return self._mod
 
     @property
     def copy(self):
-        copy = Stream()
+        return Key(self.tonic,self.mode)
 
-        if hasattr(self,'system'):
-            copy.system = copy if self.system is self else self.system.copy
+    def __init__(self,tonic,mode=major):
 
-        for item in self:
-            copy.insert(item.position,item.copy)
+        super(Key,self).__init__()
 
-    def filter(self,criteria):
-        s = Stream()
+        self._t = tonic
+        self._mod = mode
 
-        if hasattr(self,'system') and self.system is not None:
-            s.system = self.system
+    def __str__(self):
+        return '{} {}'.format(self.tonic,self.mode)
 
-        for item in self:
-            if criteria(item):
-                s.items.append(item)
+    def __eq__(self,tonality):
+        if isinstance(tonality,Key):
+            return self.tonic == tonality.tonic and self.mode == tonality.mode
+        else:
+            return False
 
-        return s
+class Meter(StreamItem):
 
-    def since(self,*position):
-        position = time(position)
-        if isinstance(position,MBR): position = self.system.translate(position)
+    @property
+    def priority(self):
+        return (self.quarters,super().priority)
 
-        s = self.filter(lambda i: i.quarters >= position)
-        return s
+    @property
+    def count(self):
+        return self._c
 
-    def until(self,*position):
-        position = time(position)
-        if isinstance(position,MBR): position = self.system.translate(position)
+    @property
+    def beat(self):
+        return self._b
 
-        s = self.filter(lambda i: i.quarters < position)
-        return s
+    @property
+    def bar_length(self):
+        return self.beat * self.count
+
+    @property
+    def copy(self):
+        return Meter(self.count,self.beat)
+
+    def __init__(self,count,beat):
+
+        super(Meter,self).__init__()
+
+        self._c = count
+
+        if isinstance(beat,int):
+            self._b = NoteType(4/beat)
+        else:
+            self._b = beat
+
+    def __str__(self):
+        return '{}/{}'.format(self.count,int(whole/self.beat))
+
+    def __eq__(self,meter):
+        if isinstance(meter,Meter):
+            return self.count == meter.count and self.beat == meter.beat
+        else:
+            return False
 
 
-    def at(self,*position):
-        position = time(position)
-        if isinstance(position,MBR): position = self.system.translate(position)
+class Metrical(object):
 
-        s = self.filter(lambda i: i.quarters == position)
-        return list(s.items)
+    class Measure(object):
 
-    def insert(self,*args):
-        p = self.priority
-        item = args[-1]
+        def __init__(self,site):
+            self.site = site
 
-        if not isinstance(item,StreamItem):
-            raise RuntimeError('missing or invalid item.')
-
-        pos = time(args[:-1])
-        if isinstance(pos,MBR):
-            if hasattr(self,'system') and self.system is not None:
-                pos = self.translate(pos)
+        def __getitem__(self,num):
+            if isinstance(num,int):
+                return self.site.filter(lambda i:i.mbr.measure == num)
+            elif isinstance(num,Iterable):
+                return self.site.filter(lambda i:i.mbr in num)
+            elif isinstance(num,slice):
+                rang = list(range(num.start,num.stop,num.step))
+                return self.iste.filter(lambda i:i.mbr in rang)
             else:
-                raise RuntimeError('no metric information.')
+                raise IndexError('invalid measure number.')
 
-        grd = p[type(item)]
+        def __str__(self):
+            first = self.site.first.mbr.measure
+            end   = self.site.last.mbr.measure
+            return 'Measure from {} to {}.'.format(first,end)
 
-        ip = 0
-        while ip < self.count:
-            if (self.items[ip].quarters,p[type(self.items[ip])]) >= (pos,grd):
+        def __repr__(self):
+            return str(self)
+
+    @property
+    def system(self):
+        return self._system
+
+    @system.setter
+    def system(self,stream):
+
+        if self.system is not None: self.system.site.remove(self)
+        self._system = stream
+
+        if stream is not None: stream.site.append(self)
+
+        self.synchronize()
+
+    def synchronize(self,reversed=False):
+        for i in self:i.synchronize(reversed)
+
+    def quantize(self,grid):
+
+        if self.system is None:
+            return
+
+        for i in self:
+            i._q = self.system.griding(i.quarters,grid).quarters
+
+        self.synchronize()
+
+    def __init__(self):
+
+        super(Metrical,self).__init__()
+
+        self._system = None
+        self.measures = Metrical.Measure(self)
+
+class Stream(object):
+
+    @property
+    def count(self):
+        return len(self)
+
+    @property
+    def starting(self):
+        return self.first.quarters if self.count > 0 else Quarters(0)
+
+    @property
+    def end(self):
+        endpoints = [i.quarters+i.duration if hasattr(i,'duration') else i.quarters
+                                            for i in self]
+        return max(endpoints) if len(endpoints) > 0 else Quarters(0)
+
+    @property
+    def copy(self):
+        pass
+
+    @property
+    def items(self):
+        return self._items
+
+    @property
+    def first(self):
+        return self.items[0]
+
+    @property
+    def last(self):
+        return self.items[-1]
+
+    @adapt_to_quarters
+    def insert(self,position,item):
+        if position is None:
+            if item.quarters is None:
+                raise RuntimeError('insert position was not specified.')
+            else:
+                position = item.quarters
+
+        if item.site is None: item.site = self
+        if item.quarters != position: item.quarters = position
+
+        for i in self:
+            if i.priority >= item.priority:
+                self.items.insert(self.items.index(i),item)
                 break
-
-            ip += 1
-
-        if item.site is None:
-            item.site = self
-
-        item.quarters = pos
-
-        self.items.insert(ip,item)
-
-    def append(self,item):
-        self.insert(self.end,item)
+        else:
+            self.items.append(item)
 
     def remove(self,item):
         self.items.remove(item)
 
-    def shift(self,amount):
-        meters = self.filter(lambda i:i.type is Meter)
-        for m in meters:
-            m.quarters += amount
+    def append(self,item):
+        self.insert(self.end,item)
 
-        others = self.filter(lambda i:i.type is not Meter)
-        for i in others:
-            i.quarters += amount
+    def find(self,criteria):
+        for i in self:
+            try:
+                if criteria(i): return i
+            except:
+                continue
+        else:
+            return None
 
-    def align(self,sys,grid):
-        from cmat.basic import NoteType
+    def rfind(self,criteria):
+        for i in reversed(self.items):
+            try:
+                if criteria(i): return i
+            except:
+                continue
+        else:
+            return None
 
-        for item in self:
+    def filter(self,criteria):
+        s = self.__class__()
+        s._system = self.system
 
-            meter = sys.get_context(item.position).meter
+        for i in self:
+            try:
+                if criteria(i): s.items.append(i)
+            except:
+                continue
 
-            if isinstance(grid,Quarters):
-                pass
-            elif isinstance(grid,NoteType):
-                grid = grid.quarters
-            elif grid == 'beat':
-                grid = meter.size.quarters
+        return s
 
-            elif grid == 'measure':
-                grid = meter.bar_length
+    @adapt_to_quarters
+    def since(self,position):
+        return self.filter(lambda i:i.quarters >= position)
 
-            amount = -(item.quarters - meter.quarters) % grid
-            item.quarters += amount
-
+    @adapt_to_quarters
+    def until(self,position):
+        if position == 0:
+            return self.filter(lambda i:i.quarters <= position)
+        else:
+            return self.filter(lambda i:i.quarters < position)
 
     def sort(self):
-        self.items.sort(key=lambda i:(i.quarters,self.priority[type(i)]))
+        self.items.sort(key=lambda i:i.priority)
 
-    def __init__(self,*items):
-        self.items = []
+    def shift(self,distance):
+        for i in self:
+            i.quarters += distance
 
-        for item in items:
-            if item.position is None:
-                self.append(item)
+    def quantize(self,grid):
+        for i in self:
+            dev = i.quarters % grid
+            if dev > grid / 2:
+                i.quarters += grid-dev
             else:
-                self.insert(item.position,item)
+                i.quarters -= dev
 
-    def __iter__(self):
-        return iter(self.items)
+    def dump(self,attributes,pos_reserved=[],alignment=None):
+
+        num_cols = len(attributes)
+        if alignment is None: alignment = '<' * num_cols
+
+        rows = []
+        pos   = pos_reserved
+        items = self.items
+    
+        pi,pc = 0,len(pos)
+        ii,ic = 0,len(items)
+
+        while pi < pc or ii < ic:
+
+            if ii >= ic and pi < pc or pi < pc and pos[pi] < items[ii].position:
+                rows.append([''] * num_cols)
+                pi += 1
+            else:
+                rows.append(items[ii].dump(attributes))
+                if pi < pc and pos[pi] == items[ii].position:
+                    pi += 1
+                ii += 1
+
+        # matrix rotation
+        columns = list(zip(*rows))
+
+        # formatting
+        formatted = []
+        for attr,col,alg in zip(attributes,columns,alignment):
+
+            # skip empty column
+            if all([i=='' for i in col]): continue
+
+            # position column
+            if attr in ('position','quarters','mbr'):
+
+                formatted.append(_position_format(col))
+
+            else:
+                # other fields
+                w = max([len(cell) for cell in col])
+                formatted.append(['{:{a}{w}}'.format(c,a=alg,w=w) for c in col])
+
+        return formatted
+
+    def __init__(self):
+
+        super(Stream,self).__init__()
+
+        self._items = []
+        self.site = None
+
+    def __getitem__(self,index):
+
+        if isinstance(index,slice):
+            start,stop,step = index.start,index.stop,index.step
+            if start > 0: start -= 1
+            if stop  > 0: stop  -= 1
+            return self.items[start:stop:step]
+
+        elif isinstance(index,int):
+            if index > 0: index -= 1
+            return self.items[index]
+
+        else:
+            return self.items[index]
 
     def __contains__(self,item):
         return item in self.items
 
-    def __getitem__(self,index):
-        if isinstance(index,slice):
-            start = index.start-1 if index.start>0 else index.start
-            stop  = index.stop -1 if index.stop >0 else index.stop
-            return Stream(*self.items[start:stop])
-        else:
-            if index > 0: index -= 1
-            return self.items[index]
+    def __iter__(self):
+        return iter(self.items)
 
     def __len__(self):
         return len(self.items)
 
     def __str__(self):
 
-        if self.count == 0:
-            return ''
+        attrs = ['position','duration.dots','duration.base','duration.tuplet',
+                 'pitch/rest/pitches/self']
 
-        layouts = []
-        for i in self:
+        align = '<>><>'
 
-            # choice between the decimal or fraction representation of position
-            if len(str(i.quarters.decimal))-1 < len(str(i.quarters.fractional)):
-                dec = 'quarters.decimal'
-            else:
-                dec = 'quarters.fractional'
-
-            layouts.append(i.layout(['quarters.integral',
-                                      dec,
-                                     'duration',
-                                     'text']))
-
-        # set column widths
-        columns = [max(w) for w in zip(*layouts)]
-
-        # set layout pattern
-        layout = '{:>%d}.{:<%d}\t {:>%d}\t {:<%d}' % (*columns,)
-
-        lines = []
-        for i in self:
-
-            # choice between the decimal or fraction representation of position
-            if len(str(i.quarters.decimal))-1 <= len(str(i.quarters.fractional)):
-                dec = 'quarters.decimal'
-            else:
-                dec = 'quarters.fractional'
-            # build the line
-            lines.append(i.formatted(layout,('position.integral',
-                                              dec,
-                                             'duration',
-                                             'text')))
-
-        return '\n'.join(lines)
+        texts = self.dump(attrs,alignment=align)
+        texts = [' '.join(fields) for fields in zip(*texts,)]
+        return '\n'.join(texts)
 
     def __repr__(self):
         return str(self)
 
-class System(Stream):
+class System(Metrical,Stream):
 
     @property
     def keys(self):
@@ -548,209 +642,162 @@ class System(Stream):
     def meters(self):
         return self.filter(lambda i:i.type is Meter)
 
-    @property
-    def copy(self):
-        s = System(None,None)
+    @adapt_to_position
+    def get_context(self,position):
 
-        if hasattr(self,'system'):
-            s.system = s if self.system is self else self.system.copy
-
-        for item in self:
-            s.insert(item.position,item.copy)
-
-        return s
-
-    def insert(self,*args):
-
-        # extract item
-        if len(args) > 0:
-            item = args[-1]
-            if not isinstance(item,StreamItem):
-                raise RuntimeError('missing or invalid item.')
-        else:
-            raise RuntimeError('missing position and item.')
-
-        # extract position
-        position = time(args[:-1])
-
-        # check position format
-        if isinstance(position,MBR):
-            quarters = self.system.translate(position)
-        else:
-            quarters = position
-            position = self.system.translate(position)
-
-        # remove occupied same type item
-        overwrite=self.filter(lambda i:i.type==item.type and i.position==position)
-        if len(overwrite) > 0:
-            for item in overwrite:
-                self.items.remove(item)
-
-        # insert
-        super().insert(quarters,item)
-
-        # rearrange item positions for meter change
-        if item.type is Meter:
-            next = self.meters.filter(lambda m:m.quarters>quarters)
-            if len(next) > 0:
-                next   = next[1]
-                amount = -(next.quarters - quarters) % item.bar_length
-                # push afterward items after next meter accordingly
-                self.since(next.quarters).shift(amount)
-
-                realignment = self.since(quarters).until(next.quarters)
-
-            else:
-                realignment = self.since(quarters)
-
-            # align to measure boundary for items between inserted and next meter
-            realignment.align(sys=realignment.system,grid='measure')
-
-    def remove(self,item):
-
-        quarters = item.quarters
-
-        self.items.remove(item)
-        ref = self.get_context(quarters).meter
-
-        if item.type is Meter:
-            next = self.meters.filter(lambda m:m.quarters>quarters)
-            if len(next) > 0:
-                next   = next[1]
-                amount = -(next.quarters - ref.quarters) % ref.bar_length
-                self.since(next.quarters).shift(amount)
-
-                realignment = self.since(quarters).until(next.quarters)
-            else:
-                realignment = self.since(quarters)
-
-            realignment.align(sys=realignment.system,grid='measure')
-
-    def filter(self,criteria):
-        s = System(None,None)
-        for item in self:
-            if criteria(item):
-                s.items.append(item)
-
-        s.system = self.system
-
-        return s
-
-    def get_context(self,*position):
-        from collections import namedtuple
         Context = namedtuple('Context',['key','meter'])
-
-        position = time(position)
-
-        if isinstance(position,MBR):
-            position = self.translate(position)
-
-        key = self.keys.filter(lambda k:k.quarters <= position)
-        key = key[-1] if len(key)>0 else None
-        meter = self.meters.filter(lambda m:m.quarters <= position)
-        meter = meter[-1] if len(meter)>0 else None
-
-        return Context(key,meter)
-
-
-    def translate(self,*position):
-        position = time(position)
 
         if isinstance(position,MBR):
             if position == MBR(1):
-                return Quarters(0)
+                key=self.rfind(lambda i:i.type is Key and i.mbr <= position)
+                meter=self.rfind(lambda i:i.type is Meter and i.mbr<=position)
             else:
-                ref = self.meters.filter(lambda m:m.position<position)[-1]
-                bl  = ref.bar_length
-                bt  = ref.size.quarters
-                q   = ref.quarters
-                q  += bl * (position.measure-ref.mbr.measure)
-                q  += bt * (position.beat - 1)
-                q  += position.remnant
-                return q
+                key=self.rfind(lambda i:i.type is Key and i.mbr < position)
+                meter=self.rfind(lambda i:i.type is Meter and i.mbr < position)
+        else:
+            if position == Quarters(0):
+                key=self.rfind(lambda i:i.type is Key and i.quarters <= position)
+                meter=self.rfind(lambda i:i.type is Meter and i.quarters <= position)
+            else:
+                key=self.rfind(lambda i:i.type is Key and i.quarters < position)
+                meter=self.rfind(lambda i:i.type is Meter and i.quarters < position)
+
+        return Context(key,meter)
+
+    @adapt_to_position
+    def translate(self,position):
+
+        if isinstance(position,MBR) and position == MBR(1): return Quarters(0)
+        if isinstance(position,Quarters) and position == Quarters(0): return MBR(1)
+
+        meter = self.get_context(position).meter
+        if meter is None: raise RuntimeError('meter was not found.')
+
+        b = meter.bar_length
+        t = meter.beat.quarters
+        r = meter.quarters
+
+        if isinstance(position,MBR):
+
+            r += b * (position.measure-meter.mbr.measure)
+            r += t * (position.beat - 1)
+            r += t *  position.remnant
+
+            return r
 
         elif isinstance(position,Quarters):
-            if position == 0:
-                return MBR(1)
+
+            d = position - r
+            m = d // b + meter.mbr.measure
+            b = d  % b // t + 1
+            r = Fraction(d%t,t).limit_denominator()
+
+            return MBR(m,b,r)
+
+    @adapt_to_quarters
+    def griding(self,position,grid):
+
+        Position = namedtuple('Position',['quarters','mbr'])
+
+        m = self.system.get_context(position).meter
+
+        if isinstance(grid,Quarters):
+            g = grid
+        elif isinstance(grid,NoteType):
+            g = grid.quarters
+        elif isinstance(grid,str):
+            if grid.lower() == 'measure':
+                g = m.bar_length
+            elif grid.lower() == 'beat':
+                g = m.beat.quarters
             else:
-                ref = self.meters.filter(lambda m:m.quarters<position)[-1]
-                bl  = ref.bar_length
-                bt  = ref.size.quarters
-                d   = position - ref.quarters
-                m   = d // bl + ref.mbr.measure
-                b   = d  % bl // bt + 1
-                r   = d  % bt
-                return MBR(m,b,r)
+                raise ValueError('unrecognized grid setting.')
+            d = position - m.quarters
 
-    def __init__(self,key=Key(C,major),meter=Meter(4,4),*items):
+        dev = d % g
+        if dev > g/2:
+            position += (g-dev)
+        else:
+            position -= dev
 
-        super().__init__()
+        return Position(position,self.system.translate(position))
+
+    @adapt_to_quarters
+    def insert(self,position,item):
+        existed = self.find(lambda i:i.type is item.type and i.quarters == position)
+        if existed is not None: self.items.remove(existed)
+
+        super().insert(position,item)
+
+        if item.type is Meter:
+
+            next = self.find(lambda i:i.type is Meter and i.quarters > position)
+            if next is not None:
+                split = next.quarters
+                shift = -(split-position)%item.bar_length
+                for s in self.site:
+                    s.since(split).shift(shift)
+                self.since(position).until(split).quantize('measure')
+            else:
+                self.since(position).quantize('measure')
+
+            for s in self.site:
+                s.synchronize()
+
+    def remove(self,item):
+        super().remove(item)
+
+        if item.type is Meter:
+
+            next = self.find(lambda i:i.type is Meter and i.quarters>item.quarters)
+            prev = self.find(lambda i:i.type is Meter and i.quarters<item.quarters)
+
+            if prev is not None:
+                if next is not None:
+                    split = next.quarters
+                    shift = -(split-prev.quarters)%prev.bar_length
+                    for s in self.site:
+                        s.since(split).shift(shift)
+                    self.since(item.quarters).until(split).quantize('measure')
+                else:
+                    self.since(item.quarters).quantize('measure')
+
+        for s in self.site:
+            s.synchronize()
+
+    def filter(self,criteria):
+        s = System(None,None)
+        s._system = self.system
+
+        for i in self.items:
+            try:
+                if criteria(i):
+                    s.items.append(i)
+            except:
+                continue
+
+        return s
+
+    def __init__(self,key=Key(C,major),meter=Meter(4,4)):
+
+        super(System,self).__init__()
+
+        self.site = []
+        self.system = self
 
         if key is not None:
-            if key.position is None:
-                key._quarters = Quarters(0)
-                key._mbr = MBR(1)
-            if not hasattr(key,'site') or key.site is None:
-                key.site = self
+            key.site = self
+            key._q   = Quarters(0)
+            key._m   = MBR(1)
             self.items.append(key)
 
         if meter is not None:
-            if meter.position is None:
-                meter._quarters = Quarters(0)
-                meter._mbr = MBR(1)
-            if not hasattr(meter,'site') or meter.site is None:
-                meter.site = self
+            meter.site = self
+            meter._q   = Quarters(0)
+            meter._m   = MBR(1)
             self.items.append(meter)
 
-        self.system = self
-
-        for item in items:
-            self.insert(item.position,item)
-
-    def __str__(self):
-
-        if self.count == 0:
-            return ''
-
-        layouts = []
-        for i in self:
-
-            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
-                dec = 'mbr.remnant.decimal'
-            else:
-                dec = 'mbr.remnant.fractional'
-
-            layouts.append(i.layout(['mbr.measure',
-                                     'mbr.beat',
-                                      dec,
-                                     'text']))
-
-        # set column widths
-        columns = [max(w) for w in zip(*layouts)]
-
-        # set layout pattern
-        layout = '{:>%d}:{:>%d}:{:<%d}\t {:>%d}' % (*columns,)
-
-        lines = []
-        for i in self:
-
-            # choice between the decimal or fraction representation of position
-            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
-                dec = 'mbr.remnant.decimal'
-            else:
-                dec = 'mbr.remnant.fractional'
-            # build the line
-            lines.append(i.formatted(layout,('mbr.measure',
-                                             'mbr.beat',
-                                              dec,
-                                             'text')))
-
-        return '\n'.join(lines)
-
-
-'''
-class Voice(Stream):
-
+class Voice(Metrical,Stream):
     @property
     def number(self):
         return self._number
@@ -758,484 +805,306 @@ class Voice(Stream):
     @number.setter
     def number(self,num):
         self._number = num
+        for i in self: i.voice = num
 
-        for item in self:
-            item.vn = num
+    @adapt_to_quarters
+    def insert(self,position,item):
 
-    @property
-    def copy(self):
-        s = Voice(sys=self.system.copy,num=self.number)
+        item.voice = self.number
+        super().insert(position,item)
 
-        for item in self.items:
-            s.insert(item.position,item.copy)
+        head = tail = item.quarters
+        if hasattr(item,'duration'): tail += item.duration.quarters
 
-        return s
+        collied = []
+
+        for i in self:
+
+            if i is item: continue
+
+            begin = end = i.quarters
+            if hasattr(i,'duration'): end += i.duration
+
+            if head  <= begin <  tail and begin < end or \
+               head  <  end   <  tail or \
+               begin <= head  <  end  or \
+               begin <  tail  <= end  and head < tail:
+                collied.append(i)
+
+        for i in collied: self.remove(i)
 
     def filter(self,criteria):
-        v = Voice(self.system,self.number)
-        for item in self.items:
-            if criteria(item):
-                v.items.append(item)
 
-        if hasattr(self,'_starting'):
-            v._starting = self._starting
-        if hasattr(self,'_stopping'):
-            v._stopping = self._stopping
+        v = Voice(num=self.number)
+        v._system = self.system
+
+        for i in self:
+            try:
+                if criteria(i):
+                    v.items.append(i)
+            except:
+                continue
 
         return v
 
-    def insert(self,*args):
+    def __init__(self,num=1,sys=None):
+        super(Voice,self).__init__()
 
-        item = args[-1]
-        if not isinstance(item,StreamItem):
-            raise RuntimeError('missing or invalid item.')
-
-        position = time(args[:-1])
-
-        if isinstance(position,MBR):
-            quarters = self.system.translate(position)
-        else:
-            quarters = position
-
-        # head and tail position of inserting item.
-        head = tail = quarters
-        if hasattr(item,'duration'):
-            tail += item.duration.quarters
-
-        # remove if collided
-        collided = []
-        for i in self:
-
-            # begin and end of item
-            begin = end = i.quarters
-            if hasattr(i,'duration'):
-                end += i.duration.quarters
-
-            if head  <= begin <  tail and begin < end or \
-               head  <  end   <= tail or \
-               begin <= head  <  end  or \
-               begin <  tail  <= end  and head < tail:
-
-                # collided
-                collided.append(i)
-
-        for i in collided:
-            self.remove(i)
-
-        item.vn = self.number
-        super().insert(quarters,item)
-
-    def set(self,*args):
-        item = args[-1]
-        if not isinstance(item,StreamItem):
-            raise RuntimeError('missing or invalid item.')
-
-        position = time(args[:-1])
-
-        self.system.set(position,item)
-
-        if item.type is Meter:
-            for i in self.since(position):
-                i.quarters = i.quarters
-
-
-    def measure(self,measure):
-        return self.since(MBR(measure)).until(MBR(measure+1))
-
-    def measures(self,start,stop=None):
-        if stop is None:
-            stop = start
-
-        return self.since(MBR(start)).until(MBR(stop+1))
-
-    def empty(self):
-        for i in self:
-            i.site.remove(i)
-
-    def __init__(self,sys=None,num=1):
-        super().__init__()
-        self.number = num
-        self.system = System() if sys is None else sys
-
-    def __str__(self):
-
-        s = []
-
-        start = MBR(1)
-        stop  = self.end if self.end > self.system.end else self.system.end
-
-        # setting start and stop boundary
-        if hasattr(self,'_starting'):
-            start = self._starting
-            if not isinstance(start,MBR):
-                start = self.system.translate(start)
-        else:
-            if self.count > 0:
-                start = self.first.mbr
-            if self.system.count > 0:
-                if self.system.first.mbr < start:
-                    start = self.system.first.mbr
-
-        if hasattr(self,'_stopping'):
-            stop = self._stopping
-            if not isinstance(stop,MBR):
-                stop = self.system.translate(stop)
-        else:
-            if self.count > 0:
-                stop = MBR(self.last.mbr.measure+1)
-            if self.system.count > 0:
-                if stop < MBR(self.system.last.mbr.measure+1):
-                    stop = MBR(self.system.last.mbr.measure+1)
-
-        # adding measure seprators
-        for n in range(start.measure,stop.measure):
-            mbr = MBR(n)
-            qar = self.system.translate(mbr)
-            msp = MeasureSeprator()
-            msp._mbr = mbr
-            msp._quarters = qar
-            s.append(msp)
-
-
-        # adding context key and meter signature if needed.
-        sys = self.system.since(MBR(start.measure)).until(MBR(stop.measure))
-        context = self.system.get_context(start)
-
-        if sys.meters.count==0 or sys.meters.first.mbr.measure > start.measure:
-            m = context.meter.copy
-            m.site = context.meter.site
-            m._mbr = MBR(start.measure)
-            m._quarters = self.system.translate(m._mbr)
-            
-            s.append(m)
-        if sys.keys.count==0 or sys.keys.first.mbr.measure > start.measure:
-            k = context.key.copy
-            k.site = context.key.site
-            k._mbr = MBR(start.measure)
-            k._quarters = self.system.translate(k._mbr)
-            s.append(k)
-
-        # adding system track items
-        s += sys
-
-        # adding self items
-        s += self
-
-        # sort the list
-        s.sort(key=lambda i:[i.quarters,self.priority[type(i)]])
-
-        # calculate column widths
-
-        layouts = [i.layout(['position.measure',
-                             'position.beat',
-                             'position.remnant',
-                             'duration.dots',
-                             'duration.base',
-                             'duration.tuplet',
-                             'text']) \
-                   for i in s if type(i) not in [MeasureSeprator]]
-
-        w1 = max([layout[0] for layout in layouts])
-        w2 = max([layout[1] for layout in layouts])
-        w3 = max([layout[2] for layout in layouts])
-        w4 = max([layout[3] for layout in layouts])
-        w5 = max([layout[4] for layout in layouts])
-        w6 = max([layout[5] for layout in layouts])
-        w7 = max([layout[6] for layout in layouts])
-
-        layout = '{:>%d}:{:>%d}:{:<%d}\t{:>%d} {:>%d} {:<%d}\t' \
-                 '{:>%d}' % (w1,w2,w3,w4,w5,w6,w7)
-        total  = len(layout.format('','','','','','','').expandtabs())
-
-
-        sep = '-[{}]-'
-
-        lines = []
-
-        for i in s:
-            if i.type is MeasureSeprator:
-                head = sep.format(i.mbr.measure)
-                lines.append(head.ljust(total,'-'))
-                continue
-            elif i.type in (Key,Meter):
-                lines.append('{:>{w}}'.format(str(i),w=total))
-                continue
-
-            lines.append(i.formatted(layout,
-                              ['position.measure',
-                               'position.beat',
-                               'position.remnant',
-                               'duration.dots',
-                               'duration.base',
-                               'duration.tuplet',
-                               'text']))
-
-        return '\n'.join(lines)
-'''
-
-class Voice(Stream):
-
-    @property
-    def number(self):
-        return self._number
-
-    @number.setter
-    def number(self,num):
         self._number = num
-
-        for item in self:
-            item.vn = num
-
-    @property
-    def measure(self):
-        return self._measure
-
-    @property
-    def measures(self):
-        return self._measure
-
-    @property
-    def copy(self):
-        s = Voice(sys=self.system.copy,num=self.number)
-        for item in self:
-            s.insert(item.position,item.copy)
-        return s
-
-    def filter(self,criteria):
-        s = Voice(sys=self.system,num=self.number)
-        for item in self:
-            if criteria(item):
-                s.items.append(item)
-        return s
-
-    def insert(self, *args):
-        item = args[-1]
-
-        if not isinstance(item,StreamItem):
-            raise RuntimeError('missing or invalid item.')
-
-        pos = time(args[:-1])
-
-        if isinstance(pos,MBR):
-            quarters = self.system.translate(pos)
-        else:
-            quarters = pos
-
-        # head and tail of insertion
-        head = tail = quarters
-        if hasattr(item,'duration'):
-            tail += item.duration.quarters
-
-        # detect possible collision
-        collided = []
-        for i in self:
-
-            # begin and end of item
-            begin = end = i.quarters
-            if hasattr(i,'duration'):
-                end += i.duration.quarters
-
-
-            if head  <= begin <  tail and begin < end or \
-               head  <  end   <= tail or \
-               begin <= head  <  end  or \
-               begin <  tail  <= end  and head < tail:
-
-                collided.append(i)
-
-        # remove collided
-        for i in collided:
-            self.remove(i)
-
-        item.vn = self.number
-
-        super().insert(quarters,item)
-
-
-    def empty(self):
-        for item in [i for i in self]:
-            self.remove(item)
-
-    def __init__(self,sys=None,num=1):
-
-        super().__init__()
-
-        self._measure = Measurement(self)
-
-        self.number = num
-        self.system = System() if sys is None else sys
-
+        self.system  = System() if sys is None else sys
 
     def __str__(self):
 
-        if self.count == 0:
-            return ''
+        sys = self.system.since(self.starting).until(self.end)
+        s   = Stream()
+        s._items = self.items + sys.items
+        s.sort()
 
-        layouts = []
-        for i in self:
-            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
-                dec = 'mbr.remnant.decimal'
+        attrs = ['position','duration.dots','duration.base','duration.tuplet',
+                 'pitch/rest/pitches/self']
+
+        align = '<>><>'
+
+        texts = s.dump(attrs,alignment=align)
+        texts = [' '.join(fields) for fields in zip(*texts,)]
+
+        return '\n'.join(texts)
+
+class Part(Metrical,Stream):
+
+    class VoicesList(object):
+
+        def keys(self):
+            return self._voices.keys()
+
+        def values(self):
+            return self._voices.values()
+
+        def items(self):
+            return self._voices.items()
+
+        def condense(self):
+            empty = []
+            for n in self.keys():
+                if self[n].count == 0:
+                    empty.append(n)
+
+            for n in empty:
+                del self._voices[n]
+
+        def __init__(self,site):
+            self._voices = {}
+            self.site = site
+
+        def __getitem__(self,num):
+            if isinstance(num,int):
+                try:
+                    return self._voices[num]
+                except KeyError:
+                    self._voices[num] = Voice(num=num,sys=self.site.system)
+                    return self._voices[num]
+            elif isinstance(num,Iterable):
+                p = Part(name=self.site.name,sys=self.site.system)
+                for n in num:
+                    p.voices[n] = self.site.voices[n]
+                return p
+            elif isinstance(num,slice):
+                p = Part(name=self.site.name,sys=self.site.system)
+                for n in range(num.start,num.stop,num.step):
+                    p.voices[n] = self.site.voices[n]
+                return p
             else:
-                dec = 'mbr.remnant.fractional'
+                raise KeyError('invalid voice number.')
 
-            layouts.append(i.layout(['mbr.measure',
-                                     'mbr.beat',
-                                      dec,
-                                     'duration.dots',
-                                     'duration.base',
-                                     'duration.tuplet',
-                                     'text']))
+        def __setitem__(self,num,voice):
+            voice.system = self.site.system
+            self._voices[num] = voice
 
-        # set column widths
-        columns = [max(w) for w in zip(*layouts)]
+        def __delitem__(self,num):
+            if self[num] in self.site.system.site:
+                self.site.system.site.remove(self[num])
+            del self._voices[num]
 
-        # build layout pattern
-        layout ='{:>%d}:{:>%d}:{:<%d}\t {:>%d} {:>%d} {:<%d}\t {:>%d}' % (*columns,)
+        def __iter__(self):
+            return iter(self._voices)
 
-        lines = []
-        for i in self:
-            if len(str(i.mbr.remnant.decimal))-1<len(str(i.mbr.remnant.fractional)):
-                dec = 'mbr.remnant.decimal'
-            else:
-                dec = 'mbr.remnant.fractional'
+        def __str__(self):
+            numbers = ','.join([str(n) for n in self._voices.keys()])
+            return 'Voices:%s' % numbers
 
-            lines.append(i.formatted(layout,['mbr.measure',
-                                             'mbr.beat',
-                                              dec,
-                                             'duration.dots',
-                                             'duration.base',
-                                             'duration.tuplet',
-                                             'text']))
+        def __repr__(self):
+            return str(self)
 
-        return '\n'.join(lines)
+    @property
+    def name(self):
+        return self._name
 
+    @name.setter
+    def name(self,name):
+        self._name = name
 
+    @property
+    def instrument(self):
+        return self._inst
 
-class Voices(object):
+    @instrument.setter
+    def instrument(self,name):
+        self._inst = name
 
-    def add(self,voice):
-        self._voices.append(voice)
+    @property
+    def system(self):
+        return self._system
 
-    def remove(self,voice):
-        self._voices.remove(voice)
+    @system.setter
+    def system(self,stream):
 
-    def __init__(self):
-        self._voices = []
+        self._system = stream
 
-    def __getitem__(self,*args):
+        for v in self.voices.values():
+            v.system = stream
 
-        for arg in args:
-            if isinstance(arg,int):
-                for v in self:
-                    if v.number == arg:
-                        return v
-                else:
-                    raise IndexError('index out of range.')
+    @property
+    def items(self):
+        items = list(chain(*self.voices.values()))
+        items.sort(key=lambda i:i.priority)
+        return items
 
-            elif isinstance(arg,slice):
-                start = slice.start-1 if slice.start > 0 else slice.start
-                stop  = slice.stop-1 if slice.stop > 0 else slice.stop
-                step  = slice.step
+    @adapt_to_quarters
+    def insert(self,position,item,voice=1):
+        try:
+            self.voices[voice].insert(position,item)
+        except:
+            self.voices[voice] = Voice(num=voice,sys=self.system)
+            self.voices[voice].insert(position,item)
 
-                vs = Voices()
-                for v in self._voices[start:stop:step]:
-                    vs.add(v)
-                return vs 
+    def remove(self,item):
+        v = self.voices[item.voice]
+        v.remove(item)
+        if v.count == 0:
+            del self.voices[item.voice]
+            v.system = None
 
-            elif isinstance(arg,tuple):
-                vs = Voices()
-                for n in arg:
-                    vs.add(self[n])
-                return vs                
-
-    def __iter__(self):
-        return iter(self._voices)
-
-
-    '''
-    def __str__(self):
-        pass
-
-    def __repr__(self):
-        return str(self)
-    '''
-
-class Part(object):
-
-    def add(self,voice):
-        voice.system = self.system
-        self.voices.add(voice)
-
-    def remove(self,voice):
-        self.voices.remove(voice)
+    def append(self,item,voice=1):
+        try:
+            self.voices[voice].insert(self.voices[voice].end,item)
+        except KeyError:
+            self.voices[voice] = Voice(num=voice,sys=self.system)
+            self.voices[voice].insert(self.voices[voice].end,item)
 
     def filter(self,criteria):
 
-        p = Part(self.system)
-
-        for v in self.voices:
-            p.add(v.filter(criteria))
-
+        p = Part(name=self.name,sys=self.system)
+        for n,v in self.voices.items():
+            p.voices[n] = v.filter(criteria)
+        p.voices.condense()
         return p
 
-    def since(self,*position):
-        pos = time(position)
-
-        if isinstance(pos,MBR):
-            return self.filter(lambda i:i.position>=pos)
-        else:
-            return self.filter(lambda i:i.quarters>=pos)
-
-    def until(self,*position):
-        pos = time(position)
-
-        if isinstance(pos,MBR):
-            return self.filter(lambda i:i.position<pos)
-        else:
-            return self.filter(lambda i:i.quarters<pos)
-
-    def __init__(self,sys=None):
+    def __init__(self,name=None,sys=None):
+        super(Part,self).__init__()
+        self._name  = name
+        self.voices = Part.VoicesList(self)
         self.system = System() if sys is None else sys
-        self.voices = Voices()
-        self.voices.add(Voice(sys=self.system,num=1))
-
-    def __iter__(self):
-        pass
 
     def __str__(self):
-        # setting start and stop boundary
-        # add measure seprator item
-        # set context key and meter if necessary
-        # merge
-        # calculate layout measurement
-        # construct text line
-        pass
 
-    def __repr__(self):
-        pass
-    
+        # positions for all items
+        positions  = list(set([i.position for i in self.items]))
+        positions.sort()
 
-def time(p):
+        # item dumps
+        columns = []
+        attributes = ['duration.dots','duration.base','duration.tuplet',
+                      'pitch/pitches/rest/self']
 
-    if type(p) is tuple and 0 < len(p) < 4:
-        if len(p) == 1:
-            p = p[0]
-            if type(p) is Quarters:
-                return p
-            elif type(p) is MBR:
-                return p
-            elif type(p) is int:
-                return MBR(p)
-            elif type(p) is float:
-                return Quarters(p)
-            else:
-                raise RuntimeError('incorrect time format.')
+        alignments = '>><>'
 
-        elif len(p) == 2:
-            return MBR(p[0],p[1],0)
+        numbers = list(self.voices.keys())
+        numbers.sort()
+
+        for n in reversed(numbers):
+            texts = self.voices[n].dump(attributes,pos_reserved=positions,
+                                                     alignment=alignments)
+            columns.append([' '.join(fields) for fields in zip(*texts,)])
+
+        # remove empty column
+        columns = [col for col in columns if len(col) > 0]
+
+        # combine item data columns
+        texts = [' '.join(cols) for cols in zip(*columns,)]
+
+        # get position and text of system track
+        sys = self.system.since(self.starting).until(self.end)
+        sys_pos = [i.position for i in sys]
+        sys_str = [str(i) for i in sys]
+
+        # blending sys and part items
+        for pos in positions:
+            if len(sys_pos) == 0: break
+            if pos >= sys_pos[0]:
+                for idx in range(len(positions)):
+                    if positions[idx] is pos: break
+                positions.insert(idx,sys_pos.pop(0))
+                texts.insert(idx,sys_str.pop(0))
+
+        positions += sys_pos
+        texts += sys_str
+
+        if len(texts)>0:
+            max_width = max([len(s) for s in texts])
+            texts = [s.rjust(max_width) for s in texts]
         else:
-            return MBR(p[1],p[1],p[2])
-    else:
-        raise RuntimeError('missing or incorrect time format.')
+            return ''
 
+        # formatted position texts
+        fd_pos = _position_format([str(p) for p in positions])
+
+        # combine pos and texts
+        texts = [' '.join([p,t]) for p,t in zip(fd_pos,texts)]
+        return '\n'.join(texts)
+
+class Score(Metrical,Stream):
+
+    def items(self):
+        pass
+
+def _position_format(texts):
+
+    # formatting position texts
+    parts = []
+
+    for c in chain(*texts):
+        if c == ':' or c == '.' or c == "'": break
+    else:
+        return ''
+
+    if c == ':':
+        # mbr format
+        for text in texts:
+            if text == '' or text.isspace():
+                fields = ['','','']
+            else:
+                fields = text.split(':')
+            parts.append(fields)
+
+        m,b,r=[max(w)for w in zip(*[[len(f)for f in entry]for entry in parts])]
+        layout = '{:0>%d}:{:0>%d}:{:<%d}' % (m,b,r)
+        texts = [' '*(m+b+r+2) if part[0]=='' else layout.format(*part)
+                    for part in parts]
+    else:
+        # quarters format
+        for text in texts:
+            if text == '' or text.isspace():
+                p1,p2 = '',''
+            else:
+                p1 = text.split('.')[0].split("'")[0]
+                w1 = len(p1)
+                p2 = '.0' if p1 == text else text[w1:]
+            parts.append([p1,p2])
+
+        i,d=[max(w)for w in zip(*[[len(f)for f in entry] for entry in parts])]
+        layout = '{:0>%d}{:<%d}' % (i,d)
+        texts = [' '*(i+d) if part[0] == '' else layout.format(*part)
+                    for part in parts]
+
+    return texts
 

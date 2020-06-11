@@ -205,6 +205,10 @@ class Pitch(PitchClass):
         return PitchClass(self.degree,self.accidental)
 
     @property
+    def number(self):
+        return self.degree + (self.octave * 7) + 7
+
+    @property
     def MIDI(self):
         return self.chromatic + (self.octave+1) * 12
 
@@ -611,16 +615,22 @@ class Triad(object):
     pass
 
 class Quarters(Fraction):
-    def __new__(cls,value,denominator=None):
+    def __new__(cls,value):
 
         self = super(Quarters,cls).__new__(cls)
-        frac = Fraction(value,denominator).limit_denominator()
+        frac = Fraction(value,None).limit_denominator()
         self._numerator,self._denominator = frac.numerator,frac.denominator
         return self
 
     def __str__(self):
-        if len(str(self.decimal)) - len(str(self.fractional)) >= 2:
-            return "'".join([str(self.integral),str(self.fractional)])
+
+        if self.decimal == 0:
+            return str(self.integral)
+        elif len(str(self.decimal)) - len(str(self.fractional)) >= 2:
+            if self.numerator > self.denominator:
+                return "'".join([str(self.integral),str(self.fractional)])
+            else:
+                return str(self.fractional)
         else:
             return str(self.numerator/self.denominator)
 
@@ -793,7 +803,7 @@ class NoteType(object):
             return self.__truediv__(other)
 
     def __rsub__(self,other):
-        return -self + other
+        return -self.quarters + other
 
     def __mul__(self,other):
         if hasattr(other,'quarters'):
@@ -899,13 +909,12 @@ class Tuplet(object):
                 Tuplet._pool[(a,n)] = object.__new__(Tuplet)
                 Tuplet._pool[(a,n)]._act  = a
                 Tuplet._pool[(a,n)]._norm = n
-        else:
-            try:
-                return Tuplet._pool[actual,normal]
-            except KeyError:
-                self = object.__new__(Tuplet)
-                self._act,self._norm = actual,normal
-                return self
+        try:
+            return Tuplet._pool[actual,normal]
+        except KeyError:
+            self = object.__new__(Tuplet)
+            self._act,self._norm = actual,normal
+            return self
 
     def __str__(self):
         return self.name
@@ -1037,9 +1046,6 @@ class Duration(object):
         else:
             return float(other // self.quarters)
 
-
-class Key(object):
-    pass
 
 
 

@@ -1,6 +1,7 @@
 from cmat.basic import Tuplet
 
 duplet       = Tuplet(2,3)
+duplet       = Tuplet(2,3)
 triplet      = Tuplet(3,2)
 quadruplet   = Tuplet(4,3)
 quintuplet   = Tuplet(5,4)
