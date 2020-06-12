@@ -724,6 +724,11 @@ class NoteType(object):
                 'sixteenth','thirty second','sixty fourth'][i]
 
     @property
+    def abbrev(self):
+        ab = 'W' if self is NoteType._pool[4] else str(int(4/self))
+        return ab
+
+    @property
     def quarters(self):
         return self._quarters
 
@@ -943,6 +948,13 @@ class Duration(object):
     @property
     def copy(self):
         return Duration(self.base,self.dots,self.tuplet)
+
+    @property
+    def abbrev(self):
+        t = '' if self.tuplet is None else 'T'
+        d = '.' * self.dots
+        b = self.base.abbrev
+        return b+t+d
 
     def __init__(self,base,dots=0,tuplet=None):
         self.base = base

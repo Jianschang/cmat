@@ -910,7 +910,8 @@ class Part(Metrical,Stream):
                 return p
             elif isinstance(num,slice):
                 p = Part(name=self.site.name,sys=self.site.system)
-                for n in range(num.start,num.stop,num.step):
+                sn = [num.start,num.stop,num.step]
+                for n in range(*[i for i in sn if i is not None]):
                     p.voices[n] = self.site.voices[n]
                 return p
             else:
@@ -1013,10 +1014,13 @@ class Part(Metrical,Stream):
 
         # item dumps
         columns = []
-        attributes = ['duration.dots','duration.base','duration.tuplet',
-                      'pitch/pitches/rest/self']
+        #attributes = ['duration.dots','duration.base','duration.tuplet',
+        #              'pitch/pitches/rest/self']
+        attributes = ['duration.abbrev','pitch/pitches/rest/self']
 
-        alignments = '>><>'
+
+        #alignments = '>><>'
+        alignments = '<>'
 
         numbers = list(self.voices.keys())
         numbers.sort()
@@ -1030,7 +1034,7 @@ class Part(Metrical,Stream):
         columns = [col for col in columns if len(col) > 0]
 
         # combine item data columns
-        texts = [' '.join(cols) for cols in zip(*columns,)]
+        texts = ['    '.join(cols) for cols in zip(*columns,)]
 
         # get position and text of system track
         sys = self.system.since(self.starting).until(self.end)
